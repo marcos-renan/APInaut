@@ -8,6 +8,15 @@ type RequestPayload = {
 };
 
 export const dynamic = "force-dynamic";
+const encoder = new TextEncoder();
+
+const bytesFromString = (value: string) => encoder.encode(value).length;
+
+const bytesFromHeaders = (headers: Record<string, string>) =>
+  Object.entries(headers).reduce(
+    (total, [key, value]) => total + bytesFromString(key) + bytesFromString(value),
+    0,
+  );
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,9 +32,16 @@ export async function POST(request: NextRequest) {
 
     const startedAt = performance.now();
 
+    const requestHeaders = payload.headers ?? {};
+    const requestBytes =
+      bytesFromString(payload.method) +
+      bytesFromString(payload.url) +
+      bytesFromHeaders(requestHeaders) +
+      bytesFromString(payload.body ?? "");
+
     const upstream = await fetch(payload.url, {
       method: payload.method,
-      headers: payload.headers ?? {},
+      headers: requestHeaders,
       body: payload.body,
       cache: "no-store",
       redirect: "follow",
@@ -38,6 +54,9 @@ export async function POST(request: NextRequest) {
       headers[key] = value;
     });
 
+    const responseBytes = bytesFromHeaders(headers) + bytesFromString(body);
+    const totalBytes = requestBytes + responseBytes;
+
     return NextResponse.json({
       ok: true,
       response: {
@@ -47,6 +66,9 @@ export async function POST(request: NextRequest) {
         headers,
         body,
         finalUrl: upstream.url,
+        requestBytes,
+        responseBytes,
+        totalBytes,
       },
     });
   } catch (error) {

@@ -25,6 +25,9 @@ type RequestExecutionResult = {
   headers: Record<string, string>;
   body: string;
   finalUrl: string;
+  requestBytes: number;
+  responseBytes: number;
+  totalBytes: number;
 };
 
 const MIN_LEFT_PANEL_WIDTH = 170;
@@ -419,6 +422,14 @@ export default function CollectionDetailsPage() {
   }, [prettyResponseBody, requestError, responseTab, result, scriptError]);
 
   const hasResponseError = Boolean(requestError || scriptError);
+  const hasSuccessfulResponse = Boolean(result && result.status >= 200 && result.status < 300);
+  const statusDisplay = requestError
+    ? "Erro"
+    : result
+      ? `${result.status} ${hasSuccessfulResponse ? "OK" : "Erro"}`
+      : "--";
+  const secondsDisplay = result ? `${(result.durationMs / 1000).toFixed(2)} s` : "--";
+  const transferDisplay = result ? `${(result.totalBytes / 1024).toFixed(2)} KB` : "--";
 
   const sendRequest = async () => {
     if (!activeRequest) {
@@ -878,15 +889,7 @@ export default function CollectionDetailsPage() {
 
           <section className="border-y border-white/10 bg-[#1a1728] p-5">
             <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-medium text-zinc-200">Resposta da API</h2>
-                {result && (
-                  <p className="mt-1 text-xs text-zinc-400">
-                    {result.status} {result.statusText} | {Math.round(result.durationMs)} ms | {result.body.length} chars
-                  </p>
-                )}
-              </div>
-
+              <h2 className="text-sm font-medium text-zinc-200">Resposta da API</h2>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -910,6 +913,33 @@ export default function CollectionDetailsPage() {
                 >
                   Headers
                 </button>
+              </div>
+            </div>
+
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
+                <p className="text-[11px] uppercase tracking-wide text-zinc-400">Status</p>
+                <p
+                  className={`mt-1 text-sm font-semibold ${
+                    requestError
+                      ? "text-rose-300"
+                      : result
+                        ? hasSuccessfulResponse
+                          ? "text-emerald-300"
+                          : "text-rose-300"
+                        : "text-zinc-300"
+                  }`}
+                >
+                  {statusDisplay}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
+                <p className="text-[11px] uppercase tracking-wide text-zinc-400">Tempo</p>
+                <p className="mt-1 text-sm font-semibold text-zinc-100">{secondsDisplay}</p>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
+                <p className="text-[11px] uppercase tracking-wide text-zinc-400">Transferido</p>
+                <p className="mt-1 text-sm font-semibold text-zinc-100">{transferDisplay}</p>
               </div>
             </div>
 
