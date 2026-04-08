@@ -145,7 +145,11 @@ const KeyValueEditor = ({
               type="checkbox"
               checked={row.enabled}
               onChange={(event) => onChange(row.id, "enabled", event.target.checked)}
+              className="peer sr-only"
             />
+            <span className="relative h-5 w-9 rounded-full bg-zinc-700 transition peer-checked:bg-emerald-500">
+              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+            </span>
           </label>
           <input
             value={row.key}
@@ -592,7 +596,7 @@ export default function CollectionDetailsPage() {
                     placeholder="Nome da requisicao"
                   />
 
-                  <div className="grid gap-2 md:grid-cols-[120px_1fr_120px]">
+                  <div className="grid gap-2 md:grid-cols-[110px_minmax(0,1fr)_40px]">
                     <select
                       value={activeRequest.method}
                       onChange={(event) =>
@@ -618,7 +622,7 @@ export default function CollectionDetailsPage() {
                           url: event.target.value,
                         }))
                       }
-                      className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                      className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
                       placeholder="https://api.exemplo.com/recurso"
                     />
 
