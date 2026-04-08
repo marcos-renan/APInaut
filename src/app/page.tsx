@@ -1,42 +1,22 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-
-type Collection = {
-  id: string;
-  name: string;
-  createdAt: string;
-};
-
-const STORAGE_KEY = "apinaut.collections";
-
-const loadCollections = (): Collection[] => {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-
-  if (!stored) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(stored) as Collection[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
+import Link from "next/link";
+import { FormEvent, useState, useSyncExternalStore } from "react";
+import {
+  getCollectionsServerSnapshot,
+  getCollectionsSnapshot,
+  saveCollections,
+  subscribeCollections,
+} from "@/lib/collections";
 
 export default function Home() {
-  const [collections, setCollections] = useState<Collection[]>(loadCollections);
+  const collections = useSyncExternalStore(
+    subscribeCollections,
+    getCollectionsSnapshot,
+    getCollectionsServerSnapshot,
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState("");
-
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(collections));
-  }, [collections]);
 
   const handleCreateCollection = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -47,13 +27,14 @@ export default function Home() {
       return;
     }
 
-    setCollections((current) => [
+    saveCollections([
       {
         id: crypto.randomUUID(),
         name: cleanName,
         createdAt: new Date().toISOString(),
+        requests: [],
       },
-      ...current,
+      ...collections,
     ]);
 
     setName("");
@@ -82,15 +63,24 @@ export default function Home() {
           )}
 
           {collections.map((collection) => (
-            <article
+            <Link
               key={collection.id}
-              className="rounded-xl border border-white/10 bg-[#1a1728] p-4 text-white"
+              href={`/collections/${collection.id}`}
+              className="block rounded-xl border border-white/10 bg-[#1a1728] p-4 text-white transition hover:border-violet-300/40 hover:bg-[#221f33]"
             >
-              <h2 className="text-base font-semibold">{collection.name}</h2>
-              <p className="mt-1 text-xs text-zinc-400">
-                Criada em {new Date(collection.createdAt).toLocaleString("pt-BR")}
-              </p>
-            </article>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold">{collection.name}</h2>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Criada em {new Date(collection.createdAt).toLocaleString("pt-BR")}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {collection.requests.length} requisicao(oes)
+                  </p>
+                </div>
+                <span className="text-sm text-zinc-300">Abrir</span>
+              </div>
+            </Link>
           ))}
         </section>
       </div>
