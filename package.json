@@ -1,15 +1,15 @@
 {
-  "name": "apilot",
+  "name": "apinaut",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
     "dev:web": "next dev --port 3000",
-    "dev:electron": "wait-on tcp:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron electron/main.cjs",
+    "dev:electron": "wait-on tcp:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron electron/main.mjs",
     "build": "next build",
     "start": "next start --port 3000",
     "start:electron": "concurrently -k \"npm:start\" \"npm:start:desktop\"",
-    "start:desktop": "wait-on tcp:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron electron/main.cjs",
+    "start:desktop": "wait-on tcp:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron electron/main.mjs",
     "lint": "eslint"
   },
   "dependencies": {
