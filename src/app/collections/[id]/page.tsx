@@ -381,7 +381,7 @@ export default function CollectionDetailsPage() {
 
   const prettyResponseBody = useMemo(() => {
     if (!result) {
-      return "Nenhuma resposta ainda.";
+      return "";
     }
 
     const contentType = result.headers["content-type"] ?? "";
@@ -396,6 +396,29 @@ export default function CollectionDetailsPage() {
 
     return result.body;
   }, [result]);
+
+  const responsePaneContent = useMemo(() => {
+    const errors: string[] = [];
+
+    if (requestError) {
+      errors.push(`Request Error:\n${requestError}`);
+    }
+
+    if (scriptError) {
+      errors.push(`Script Error:\n${scriptError}`);
+    }
+
+    if (responseTab === "headers") {
+      const headersContent = result ? JSON.stringify(result.headers, null, 2) : "";
+      return errors.length ? [errors.join("\n\n"), headersContent].filter(Boolean).join("\n\n") : headersContent;
+    }
+
+    return errors.length
+      ? [errors.join("\n\n"), prettyResponseBody].filter(Boolean).join("\n\n")
+      : prettyResponseBody;
+  }, [prettyResponseBody, requestError, responseTab, result, scriptError]);
+
+  const hasResponseError = Boolean(requestError || scriptError);
 
   const sendRequest = async () => {
     if (!activeRequest) {
@@ -448,6 +471,7 @@ export default function CollectionDetailsPage() {
       if (!data.ok) {
         setRequestError(data.error);
         setResult(null);
+        setResponseTab("body");
         return;
       }
 
@@ -469,6 +493,7 @@ export default function CollectionDetailsPage() {
       const message = error instanceof Error ? error.message : "Erro inesperado ao enviar requisicao.";
       setRequestError(message);
       setResult(null);
+      setResponseTab("body");
     } finally {
       setIsSending(false);
     }
@@ -888,24 +913,12 @@ export default function CollectionDetailsPage() {
               </div>
             </div>
 
-            {requestError && (
-              <p className="mb-3 rounded-lg border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-200">
-                {requestError}
-              </p>
-            )}
-
-            {scriptError && (
-              <p className="mb-3 rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-                {scriptError}
-              </p>
-            )}
-
-            <pre className="h-[520px] overflow-auto rounded-lg border border-white/10 bg-[#121025] p-3 text-xs text-zinc-100">
-              {responseTab === "body"
-                ? prettyResponseBody
-                : result
-                  ? JSON.stringify(result.headers, null, 2)
-                  : "Nenhuma resposta ainda."}
+            <pre
+              className={`h-[520px] overflow-auto rounded-lg border border-white/10 bg-[#121025] p-3 text-xs ${
+                hasResponseError ? "text-rose-300" : "text-zinc-100"
+              }`}
+            >
+              {responsePaneContent}
             </pre>
 
             {result && (
