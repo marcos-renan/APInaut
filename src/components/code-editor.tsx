@@ -4,7 +4,9 @@ import { useMemo } from "react";
 import CodeMirror, { type Extension } from "@uiw/react-codemirror";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { json } from "@codemirror/lang-json";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
+import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, placeholder as placeholderExtension } from "@codemirror/view";
 import { cn } from "@/lib/utils";
@@ -21,6 +23,7 @@ type CodeEditorProps = {
   className?: string;
   errorTone?: boolean;
   enableJsonAutocomplete?: boolean;
+  jsonColorPreset?: "default" | "response";
 };
 
 const editorTheme = EditorView.theme(
@@ -29,8 +32,10 @@ const editorTheme = EditorView.theme(
       backgroundColor: "#121025",
       height: "100%",
       fontSize: "12px",
+      color: "#e5e7eb",
     },
     ".cm-scroller": {
+      backgroundColor: "#121025",
       fontFamily: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace",
       lineHeight: "1.55",
       overflow: "auto",
@@ -77,6 +82,15 @@ const errorTheme = EditorView.theme(
   { dark: true },
 );
 
+const responseJsonHighlight = HighlightStyle.define([
+  { tag: tags.string, color: "#4ade80" },
+  {
+    tag: [tags.null, tags.number, tags.bool, tags.atom, tags.keyword],
+    color: "#c4b5fd",
+  },
+  { tag: [tags.propertyName, tags.attributeName, tags.labelName], color: "#facc15" },
+]);
+
 export const CodeEditor = ({
   value,
   onChange,
@@ -87,6 +101,7 @@ export const CodeEditor = ({
   className,
   errorTone = false,
   enableJsonAutocomplete = false,
+  jsonColorPreset = "default",
 }: CodeEditorProps) => {
   const extensions = useMemo(() => {
     const nextExtensions: Extension[] = [EditorView.lineWrapping, editorTheme];
@@ -106,6 +121,10 @@ export const CodeEditor = ({
           closeBrackets(),
         );
       }
+
+      if (jsonColorPreset === "response") {
+        nextExtensions.push(Prec.highest(syntaxHighlighting(responseJsonHighlight)));
+      }
     }
 
     if (placeholder) {
@@ -117,7 +136,7 @@ export const CodeEditor = ({
     }
 
     return nextExtensions;
-  }, [enableJsonAutocomplete, errorTone, language, placeholder, readOnly]);
+  }, [enableJsonAutocomplete, errorTone, jsonColorPreset, language, placeholder, readOnly]);
 
   return (
     <div className={cn("overflow-hidden rounded-lg border border-white/15 bg-[#121025]", className)}>

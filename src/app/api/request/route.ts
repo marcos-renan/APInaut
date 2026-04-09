@@ -30,6 +30,7 @@ export const runtime = "nodejs";
 
 const encoder = new TextEncoder();
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD"]);
 
 const bytesFromString = (value: string) => encoder.encode(value).length;
 
@@ -261,10 +262,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedMethod = payload.method.toUpperCase();
+    const headers = { ...(payload.headers ?? {}) };
+
+    if (METHODS_WITHOUT_BODY.has(normalizedMethod)) {
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === "content-length") {
+          delete headers[key];
+        }
+      }
+    }
+
     const requestInput: RequestInput = {
-      method: payload.method,
-      headers: payload.headers ?? {},
-      body: payload.body,
+      method: normalizedMethod,
+      headers,
+      body: METHODS_WITHOUT_BODY.has(normalizedMethod) ? undefined : payload.body,
     };
 
     const startedAt = performance.now();

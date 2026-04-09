@@ -39,6 +39,38 @@ const RESIZER_WIDTH = 1;
 const DELETE_CONFIRM_TIMEOUT_MS = 1500;
 const PANE_LAYOUT_STORAGE_KEY = "apinaut:request-pane-layout:v1";
 const DEFAULT_LEFT_PANEL_WIDTH = 240;
+const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+const METHOD_STYLE_MAP: Record<
+  ApiRequest["method"],
+  { select: string; badge: string; optionColor: string }
+> = {
+  GET: {
+    select: "border-emerald-400/55 bg-emerald-500/15 text-emerald-200",
+    badge: "border-emerald-400/45 bg-emerald-500/15 text-emerald-200",
+    optionColor: "#86efac",
+  },
+  POST: {
+    select: "border-yellow-400/55 bg-yellow-500/15 text-yellow-200",
+    badge: "border-yellow-400/45 bg-yellow-500/15 text-yellow-200",
+    optionColor: "#fde68a",
+  },
+  PUT: {
+    select: "border-orange-400/55 bg-orange-500/15 text-orange-200",
+    badge: "border-orange-400/45 bg-orange-500/15 text-orange-200",
+    optionColor: "#fdba74",
+  },
+  PATCH: {
+    select: "border-violet-400/55 bg-violet-500/15 text-violet-200",
+    badge: "border-violet-400/45 bg-violet-500/15 text-violet-200",
+    optionColor: "#c4b5fd",
+  },
+  DELETE: {
+    select: "border-rose-400/55 bg-rose-500/15 text-rose-200",
+    badge: "border-rose-400/45 bg-rose-500/15 text-rose-200",
+    optionColor: "#fda4af",
+  },
+};
 
 type PaneWidths = {
   left: number;
@@ -623,7 +655,9 @@ export default function CollectionDetailsPage() {
         headers: buildHeaders(activeRequest),
       };
 
-      if (activeRequest.bodyMode !== "none" && activeRequest.body.trim()) {
+      const methodWithoutBody = payload.method === "GET";
+
+      if (!methodWithoutBody && activeRequest.bodyMode !== "none" && activeRequest.body.trim()) {
         payload.body = activeRequest.body;
       }
 
@@ -634,6 +668,10 @@ export default function CollectionDetailsPage() {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Falha no script pre-request.";
         setScriptError(message);
+      }
+
+      if (payload.method === "GET") {
+        delete payload.body;
       }
 
       const response = await fetch("/api/request", {
@@ -766,7 +804,15 @@ export default function CollectionDetailsPage() {
                       : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
                   }`}
                 >
-                  <p className="text-xs text-zinc-400">{request.method}</p>
+                  <p>
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
+                        METHOD_STYLE_MAP[request.method].badge
+                      }`}
+                    >
+                      {request.method}
+                    </span>
+                  </p>
                   <p className="truncate font-medium text-zinc-100">{request.name}</p>
                 </button>
               ))}
@@ -810,13 +856,23 @@ export default function CollectionDetailsPage() {
                           method: event.target.value as ApiRequest["method"],
                         }))
                       }
-                      className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                      className={`h-10 rounded-lg border bg-[#121025] px-3 text-sm font-semibold outline-none ring-violet-400 transition focus:ring-2 ${
+                        METHOD_STYLE_MAP[activeRequest.method].select
+                      }`}
                     >
-                      <option value="GET">GET</option>
-                      <option value="POST">POST</option>
-                      <option value="PUT">PUT</option>
-                      <option value="PATCH">PATCH</option>
-                      <option value="DELETE">DELETE</option>
+                      {METHOD_OPTIONS.map((method) => (
+                        <option
+                          key={method}
+                          value={method}
+                          style={{
+                            color: METHOD_STYLE_MAP[method].optionColor,
+                            backgroundColor: "#121025",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {method}
+                        </option>
+                      ))}
                     </select>
 
                     <input
@@ -914,6 +970,7 @@ export default function CollectionDetailsPage() {
                           }))
                         }
                         language={activeRequest.bodyMode === "json" ? "json" : "text"}
+                        jsonColorPreset="response"
                         readOnly={activeRequest.bodyMode === "none"}
                         enableJsonAutocomplete={activeRequest.bodyMode === "json"}
                         height={280}
@@ -1146,6 +1203,7 @@ export default function CollectionDetailsPage() {
                 value={responsePaneContent}
                 readOnly
                 language={responseLanguage}
+                jsonColorPreset="response"
                 errorTone={hasResponseError}
                 height="100%"
                 className="h-[486px] overflow-auto rounded-none border-0 xl:h-full"
