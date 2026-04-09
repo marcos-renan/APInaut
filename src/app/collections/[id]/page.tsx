@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Send, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Send, Trash2 } from "lucide-react";
 import {
   ApiRequest,
   KeyValueRow,
@@ -143,17 +143,30 @@ const KeyValueEditor = ({
 
       {rows.map((row) => (
         <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]">
-          <label className="flex h-10 items-center justify-center rounded-lg border border-white/15 bg-[#121025]">
-            <input
-              type="checkbox"
-              checked={row.enabled}
-              onChange={(event) => onChange(row.id, "enabled", event.target.checked)}
-              className="peer sr-only"
-            />
-            <span className="relative h-5 w-9 rounded-full bg-zinc-700 transition peer-checked:bg-emerald-500">
-              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+          <button
+            type="button"
+            onClick={() => onChange(row.id, "enabled", !row.enabled)}
+            className={`flex h-10 items-center justify-center rounded-lg border transition ${
+              row.enabled
+                ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
+                : "border-white/15 bg-[#121025] hover:bg-white/10"
+            }`}
+            aria-pressed={row.enabled}
+            aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
+            title={row.enabled ? "Desativar linha" : "Ativar linha"}
+          >
+            <span
+              className={`relative h-5 w-9 rounded-full transition ${
+                row.enabled ? "bg-emerald-500" : "bg-zinc-700"
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                  row.enabled ? "translate-x-4" : ""
+                }`}
+              />
             </span>
-          </label>
+          </button>
           <input
             value={row.key}
             onChange={(event) => onChange(row.id, "key", event.target.value)}
@@ -214,6 +227,8 @@ export default function CollectionDetailsPage() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [scriptError, setScriptError] = useState<string | null>(null);
   const [result, setResult] = useState<RequestExecutionResult | null>(null);
+  const [showBearerToken, setShowBearerToken] = useState(false);
+  const [showBasicPassword, setShowBasicPassword] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(210);
   const [rightPanelWidth, setRightPanelWidth] = useState(340);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
@@ -765,17 +780,29 @@ export default function CollectionDetailsPage() {
                       </select>
 
                       {activeRequest.authType === "bearer" && (
-                        <input
-                          value={activeRequest.bearerToken}
-                          onChange={(event) =>
-                            updateActiveRequest((request) => ({
-                              ...request,
-                              bearerToken: event.target.value,
-                            }))
-                          }
-                          className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-                          placeholder="Token"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showBearerToken ? "text" : "password"}
+                            value={activeRequest.bearerToken}
+                            onChange={(event) =>
+                              updateActiveRequest((request) => ({
+                                ...request,
+                                bearerToken: event.target.value,
+                              }))
+                            }
+                            className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 pr-10 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                            placeholder="Token"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowBearerToken((current) => !current)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-300 transition hover:text-white"
+                            aria-label={showBearerToken ? "Ocultar token" : "Mostrar token"}
+                            title={showBearerToken ? "Ocultar token" : "Mostrar token"}
+                          >
+                            {showBearerToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                       )}
 
                       {activeRequest.authType === "basic" && (
@@ -791,18 +818,29 @@ export default function CollectionDetailsPage() {
                             className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
                             placeholder="Username"
                           />
-                          <input
-                            type="password"
-                            value={activeRequest.basicPassword}
-                            onChange={(event) =>
-                              updateActiveRequest((request) => ({
-                                ...request,
-                                basicPassword: event.target.value,
-                              }))
-                            }
-                            className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-                            placeholder="Password"
-                          />
+                          <div className="relative">
+                            <input
+                              type={showBasicPassword ? "text" : "password"}
+                              value={activeRequest.basicPassword}
+                              onChange={(event) =>
+                                updateActiveRequest((request) => ({
+                                  ...request,
+                                  basicPassword: event.target.value,
+                                }))
+                              }
+                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 pr-10 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                              placeholder="Password"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowBasicPassword((current) => !current)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-300 transition hover:text-white"
+                              aria-label={showBasicPassword ? "Ocultar senha" : "Mostrar senha"}
+                              title={showBasicPassword ? "Ocultar senha" : "Mostrar senha"}
+                            >
+                              {showBasicPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
