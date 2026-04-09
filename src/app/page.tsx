@@ -29,8 +29,13 @@ type CollectionMenuState = {
   y: number;
 } | null;
 
+type DeleteCollectionTarget = {
+  id: string;
+  name: string;
+} | null;
+
 const COLLECTION_MENU_WIDTH = 172;
-const COLLECTION_MENU_HEIGHT = 88;
+const COLLECTION_MENU_HEIGHT = 124;
 const MENU_VIEWPORT_PADDING = 8;
 
 export default function Home() {
@@ -46,6 +51,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const collectionMenuRef = useRef<HTMLDivElement | null>(null);
   const [collectionMenu, setCollectionMenu] = useState<CollectionMenuState>(null);
+  const [deleteCollectionTarget, setDeleteCollectionTarget] = useState<DeleteCollectionTarget>(null);
 
   const showFeedback = (type: "success" | "error", message: string) => {
     setIoFeedback({ type, message });
@@ -256,12 +262,41 @@ export default function Home() {
         requestTree: [],
         environments: [],
         activeEnvironmentId: null,
+        lastActiveRequestId: null,
       },
       ...collections,
     ]);
 
     setName("");
     setIsModalOpen(false);
+  };
+
+  const handleDeleteCollection = (collectionId: string) => {
+    const target = collections.find((collection) => collection.id === collectionId);
+
+    if (!target) {
+      return;
+    }
+
+    setDeleteCollectionTarget({
+      id: target.id,
+      name: target.name,
+    });
+    setCollectionMenu(null);
+  };
+
+  const closeDeleteCollectionModal = () => {
+    setDeleteCollectionTarget(null);
+  };
+
+  const confirmDeleteCollection = () => {
+    if (!deleteCollectionTarget) {
+      return;
+    }
+
+    saveCollections(collections.filter((collection) => collection.id !== deleteCollectionTarget.id));
+    showFeedback("success", `Coleção "${deleteCollectionTarget.name}" deletada com sucesso.`);
+    closeDeleteCollectionModal();
   };
 
   return (
@@ -306,9 +341,9 @@ export default function Home() {
           </div>
         )}
 
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <section className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
           {collections.length === 0 && (
-            <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-sm text-zinc-300 sm:col-span-2 lg:col-span-3">
+            <div className="col-span-full rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-sm text-zinc-300">
               Nenhuma coleção criada ainda.
             </div>
           )}
@@ -328,10 +363,10 @@ export default function Home() {
                     router.push(`/collections/${collection.id}`);
                   }
                 }}
-                className="flex aspect-square cursor-pointer flex-col rounded-xl border border-white/10 bg-[#1a1728] p-4 text-white transition hover:border-violet-300/40 hover:bg-[#221f33] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+                className="flex aspect-square cursor-pointer flex-col rounded-xl border border-white/10 bg-[#1a1728] p-3 text-white transition hover:border-violet-300/40 hover:bg-[#221f33] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="line-clamp-2 pr-2 text-base font-semibold">{collection.name}</h2>
+                  <h2 className="line-clamp-2 pr-2 text-sm font-semibold">{collection.name}</h2>
                   <button
                     type="button"
                     onClick={(event) => openCollectionMenu(event, collection.id)}
@@ -343,11 +378,11 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="mt-3 space-y-1 text-xs text-zinc-400">
+                <div className="mt-2 space-y-1 text-[11px] text-zinc-400">
                   <p>Criada em {new Date(collection.createdAt).toLocaleDateString("pt-BR")}</p>
                   <p className="text-zinc-500">{requestCount} requisicao(oes)</p>
                 </div>
-                <div className="mt-auto pt-4 text-xs font-medium text-violet-200/80">Clique para abrir</div>
+                <div className="mt-auto pt-3 text-[11px] font-medium text-violet-200/80">Clique para abrir</div>
               </article>
             );
           })}
@@ -382,6 +417,13 @@ export default function Home() {
             className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
           >
             Exportar YAML
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDeleteCollection(selectedMenuCollection.id)}
+            className="w-full rounded-md px-3 py-2 text-left text-sm text-rose-200 transition hover:bg-rose-500/20"
+          >
+            Deletar coleção
           </button>
         </div>
       )}
@@ -423,6 +465,36 @@ export default function Home() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {deleteCollectionTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1a1728] p-5">
+            <h2 className="text-lg font-semibold text-white">Deletar coleção</h2>
+            <p className="mt-2 text-sm text-zinc-300">
+              Tem certeza que deseja deletar{" "}
+              <span className="font-semibold text-zinc-100">&quot;{deleteCollectionTarget.name}&quot;</span>?
+            </p>
+            <p className="mt-1 text-xs text-rose-200">Essa ação não pode ser desfeita.</p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeleteCollectionModal}
+                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteCollection}
+                className="rounded-lg border border-rose-300/50 bg-rose-500/20 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/30"
+              >
+                Deletar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

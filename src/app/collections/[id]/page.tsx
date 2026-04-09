@@ -17,6 +17,7 @@ import {
 import {
   ArrowBigLeft,
   AlertTriangle,
+  ChevronDown,
   ChevronRight,
   Copy,
   Eye,
@@ -91,6 +92,11 @@ type TemplateSuggestionState = {
   fieldElement: HTMLInputElement | HTMLTextAreaElement;
 } | null;
 
+type StyledSelectOption = {
+  value: string;
+  label: string;
+};
+
 const MIN_LEFT_PANEL_WIDTH = 140;
 const MIN_CENTER_PANEL_WIDTH = 300;
 const MIN_RIGHT_PANEL_WIDTH = 220;
@@ -150,6 +156,105 @@ const METHOD_STYLE_MAP: Record<
     listInactive: "border-rose-500/20 bg-rose-500/6 hover:bg-rose-500/12",
     optionColor: "#fda4af",
   },
+};
+
+const StyledSelect = ({
+  value,
+  onChange,
+  options,
+  placeholder = "Selecionar",
+  containerClassName = "",
+  triggerClassName = "",
+  menuClassName = "",
+  optionClassName = "",
+}: {
+  value: string;
+  onChange: (nextValue: string) => void;
+  options: StyledSelectOption[];
+  placeholder?: string;
+  containerClassName?: string;
+  triggerClassName?: string;
+  menuClassName?: string;
+  optionClassName?: string;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selectedOption = options.find((option) => option.value === value) ?? null;
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        containerRef.current &&
+        event.target instanceof Node &&
+        containerRef.current.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    const handleScroll = () => {
+      setIsOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("scroll", handleScroll, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [isOpen]);
+
+  return (
+    <div ref={containerRef} className={`relative ${containerClassName}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className={`flex w-full items-center justify-between rounded-md border border-violet-300/45 bg-violet-500/15 px-2 text-xs font-medium text-violet-100 outline-none ring-violet-400 transition hover:bg-violet-500/25 focus:ring-2 ${triggerClassName}`}
+      >
+        <span className="truncate">{selectedOption?.label ?? placeholder}</span>
+        <ChevronDown className={`ml-2 h-4 w-4 shrink-0 transition ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {isOpen && (
+        <div
+          className={`absolute right-0 top-[calc(100%+6px)] z-40 w-full overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_10px_26px_rgba(0,0,0,0.45)] ${menuClassName}`}
+        >
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+              className={`w-full rounded-md px-3 py-2 text-left text-sm transition ${
+                option.value === value
+                  ? "bg-violet-500/35 text-violet-50"
+                  : "text-zinc-100 hover:bg-white/10"
+              } ${optionClassName}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 type PaneWidths = {
@@ -281,13 +386,20 @@ const hasRequestInTree = (tree: RequestTreeNode[], requestId: string | null): bo
   return false;
 };
 
-const findFirstRequestId = (tree: RequestTreeNode[]): string | null => {
+const findFolderPathForRequest = (
+  tree: RequestTreeNode[],
+  requestId: string,
+  trail: string[] = [],
+): string[] | null => {
   for (const node of tree) {
     if (node.type === "request") {
-      return node.id;
+      if (node.id === requestId) {
+        return trail;
+      }
+      continue;
     }
 
-    const nested = findFirstRequestId(node.children);
+    const nested = findFolderPathForRequest(node.children, requestId, [...trail, node.id]);
 
     if (nested) {
       return nested;
@@ -1162,17 +1274,49 @@ export default function CollectionDetailsPage() {
   }, [editingGlobalEnvironmentId, globalEnvironments, isEnvironmentModalOpen]);
 
   useEffect(() => {
-    const firstRequestId = findFirstRequestId(requestTree);
-
-    if (!firstRequestId) {
+    if (!collection) {
       setActiveRequestId(null);
       return;
     }
 
-    if (!hasRequestInTree(requestTree, activeRequestId)) {
-      setActiveRequestId(firstRequestId);
+    const storedRequestId =
+      typeof collection.lastActiveRequestId === "string" &&
+      hasRequestInTree(requestTree, collection.lastActiveRequestId)
+        ? collection.lastActiveRequestId
+        : null;
+
+    if (collection.lastActiveRequestId && !storedRequestId && collectionId) {
+      updateCollections((current) =>
+        current.map((item) =>
+          item.id === collectionId ? { ...item, lastActiveRequestId: null } : item,
+        ),
+      );
     }
-  }, [activeRequestId, requestTree]);
+
+    if (activeRequestId !== storedRequestId) {
+      setActiveRequestId(storedRequestId);
+    }
+
+    if (storedRequestId) {
+      const folderPath = findFolderPathForRequest(requestTree, storedRequestId) ?? [];
+
+      if (folderPath.length > 0) {
+        setExpandedFolderIds((current) => {
+          const nextSet = new Set(current);
+          let changed = false;
+
+          for (const folderId of folderPath) {
+            if (!nextSet.has(folderId)) {
+              nextSet.add(folderId);
+              changed = true;
+            }
+          }
+
+          return changed ? Array.from(nextSet) : current;
+        });
+      }
+    }
+  }, [activeRequestId, collection, collectionId, requestTree]);
 
   useEffect(() => {
     if (!collection) {
@@ -1302,6 +1446,22 @@ export default function CollectionDetailsPage() {
         return updater(item);
       }),
     );
+  };
+
+  const setActiveRequestAndPersist = (requestId: string | null) => {
+    setActiveRequestId(requestId);
+    updateCurrentCollection((currentCollection) => {
+      const currentLastActiveRequestId = currentCollection.lastActiveRequestId ?? null;
+
+      if (currentLastActiveRequestId === requestId) {
+        return currentCollection;
+      }
+
+      return {
+        ...currentCollection,
+        lastActiveRequestId: requestId,
+      };
+    });
   };
 
   const updateCollectionTree = (updater: (tree: RequestTreeNode[]) => RequestTreeNode[]) => {
@@ -1573,7 +1733,7 @@ export default function CollectionDetailsPage() {
     const newRequestNode = createRequestNode("New Request");
 
     updateCollectionTree((tree) => [newRequestNode, ...tree]);
-    setActiveRequestId(newRequestNode.id);
+    setActiveRequestAndPersist(newRequestNode.id);
     setEditingRequestId(null);
     setEditingRequestName("");
     setEditingFolderId(null);
@@ -1601,7 +1761,7 @@ export default function CollectionDetailsPage() {
     setExpandedFolderIds((current) =>
       current.includes(folderId) ? current : [...current, folderId],
     );
-    setActiveRequestId(newRequestNode.id);
+    setActiveRequestAndPersist(newRequestNode.id);
     setEditingRequestId(null);
     setEditingRequestName("");
     setEditingFolderId(null);
@@ -1806,7 +1966,7 @@ export default function CollectionDetailsPage() {
   };
 
   const selectRequest = (requestId: string) => {
-    setActiveRequestId(requestId);
+    setActiveRequestAndPersist(requestId);
     setRequestContextMenu(null);
     setEditingFolderId(null);
     setEditingFolderName("");
@@ -1817,7 +1977,7 @@ export default function CollectionDetailsPage() {
   };
 
   const startEditingRequestName = (requestId: string, currentName: string) => {
-    setActiveRequestId(requestId);
+    setActiveRequestAndPersist(requestId);
     setRequestContextMenu(null);
     setEditingRequestId(requestId);
     setEditingRequestName(currentName);
@@ -1903,6 +2063,7 @@ export default function CollectionDetailsPage() {
     }
 
     if (activeRequestId && hasRequestInTree([removedNode], activeRequestId)) {
+      setActiveRequestAndPersist(null);
       setResult(null);
       setRequestError(null);
       setScriptError(null);
@@ -2005,7 +2166,7 @@ export default function CollectionDetailsPage() {
     );
 
     if (targetNode?.type === "request") {
-      setActiveRequestId(nodeId);
+      setActiveRequestAndPersist(nodeId);
     }
 
     setRequestContextMenu({
@@ -2689,34 +2850,34 @@ export default function CollectionDetailsPage() {
           <h1 className="text-xl font-semibold">{collection.name}</h1>
 
           <div className="ml-auto flex items-center gap-2">
-            <div className="min-w-[180px]">
-              <select
-                value={collection.activeEnvironmentId ?? ""}
-                onChange={(event) => setActiveEnvironmentId(event.target.value || null)}
-                className="h-8 w-full rounded-md border border-white/15 bg-[#121025] px-2 text-xs text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-              >
-                <option value="">Sem ambiente</option>
-                {environments.map((environment) => (
-                  <option key={environment.id} value={environment.id}>
-                    Local: {environment.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="min-w-[180px]">
-              <select
-                value={globalEnvironmentState.activeEnvironmentId ?? ""}
-                onChange={(event) => setActiveGlobalEnvironmentId(event.target.value || null)}
-                className="h-8 w-full rounded-md border border-white/15 bg-[#121025] px-2 text-xs text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-              >
-                <option value="">Sem global</option>
-                {globalEnvironments.map((environment) => (
-                  <option key={environment.id} value={environment.id}>
-                    Global: {environment.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <StyledSelect
+              value={collection.activeEnvironmentId ?? ""}
+              onChange={(nextValue) => setActiveEnvironmentId(nextValue || null)}
+              options={[
+                { value: "", label: "Sem ambiente" },
+                ...environments.map((environment) => ({
+                  value: environment.id,
+                  label: `Local: ${environment.name}`,
+                })),
+              ]}
+              containerClassName="min-w-[180px]"
+              triggerClassName="h-8"
+              menuClassName="min-w-[180px]"
+            />
+            <StyledSelect
+              value={globalEnvironmentState.activeEnvironmentId ?? ""}
+              onChange={(nextValue) => setActiveGlobalEnvironmentId(nextValue || null)}
+              options={[
+                { value: "", label: "Sem global" },
+                ...globalEnvironments.map((environment) => ({
+                  value: environment.id,
+                  label: `Global: ${environment.name}`,
+                })),
+              ]}
+              containerClassName="min-w-[180px]"
+              triggerClassName="h-8"
+              menuClassName="min-w-[180px]"
+            />
             <button
               type="button"
               onClick={openEnvironmentModal}
@@ -2937,26 +3098,21 @@ export default function CollectionDetailsPage() {
 
                   {requestTab === "body" && (
                     <div className="flex h-full flex-col space-y-2">
-                      <select
+                      <StyledSelect
                         value={activeRequest.bodyMode}
-                        onChange={(event) =>
+                        onChange={(nextValue) =>
                           updateActiveRequest((request) => ({
                             ...request,
-                            bodyMode: event.target.value as ApiRequest["bodyMode"],
+                            bodyMode: nextValue as ApiRequest["bodyMode"],
                           }))
                         }
-                        className="h-10 shrink-0 rounded-lg border border-violet-300/45 bg-violet-500/15 px-3 text-sm font-medium text-violet-100 outline-none ring-violet-400 transition focus:ring-2"
-                      >
-                        <option value="none" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
-                          Sem body
-                        </option>
-                        <option value="json" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
-                          JSON
-                        </option>
-                        <option value="text" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
-                          Text
-                        </option>
-                      </select>
+                        options={[
+                          { value: "none", label: "Sem body" },
+                          { value: "json", label: "JSON" },
+                          { value: "text", label: "Text" },
+                        ]}
+                        triggerClassName="h-10 rounded-lg px-3 text-sm"
+                      />
 
                       <CodeEditor
                         value={activeRequest.body}
@@ -2986,27 +3142,22 @@ export default function CollectionDetailsPage() {
                   )}
 
                   {requestTab === "auth" && (
-                    <div className="space-y-3 overflow-auto pr-1">
-                      <select
+                    <div className="space-y-3 overflow-visible pr-1">
+                      <StyledSelect
                         value={activeRequest.authType}
-                        onChange={(event) =>
+                        onChange={(nextValue) =>
                           updateActiveRequest((request) => ({
                             ...request,
-                            authType: event.target.value as ApiRequest["authType"],
+                            authType: nextValue as ApiRequest["authType"],
                           }))
                         }
-                        className="h-10 rounded-lg border border-violet-300/45 bg-violet-500/15 px-3 text-sm font-medium text-violet-100 outline-none ring-violet-400 transition focus:ring-2"
-                      >
-                        <option value="none" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
-                          Nenhuma
-                        </option>
-                        <option value="bearer" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
-                          Bearer Token
-                        </option>
-                        <option value="basic" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
-                          Basic Auth
-                        </option>
-                      </select>
+                        options={[
+                          { value: "none", label: "Nenhuma" },
+                          { value: "bearer", label: "Bearer Token" },
+                          { value: "basic", label: "Basic Auth" },
+                        ]}
+                        triggerClassName="h-10 rounded-lg px-3 text-sm"
+                      />
 
                       {activeRequest.authType === "bearer" && (
                         <div className="relative">
@@ -3373,8 +3524,14 @@ export default function CollectionDetailsPage() {
       )}
 
       {isEnvironmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
-          <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/15 bg-[#151225] shadow-[0_12px_42px_rgba(0,0,0,0.5)]">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+          onClick={closeEnvironmentModal}
+        >
+          <div
+            className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/15 bg-[#151225] shadow-[0_12px_42px_rgba(0,0,0,0.5)]"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <h2 className="text-sm font-semibold text-zinc-100">Gerenciar ambientes</h2>
               <button

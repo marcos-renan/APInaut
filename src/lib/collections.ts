@@ -65,6 +65,7 @@ export type Collection = {
   requestTree: RequestTreeNode[];
   environments: Environment[];
   activeEnvironmentId: string | null;
+  lastActiveRequestId: string | null;
 };
 
 export type GlobalEnvironmentsState = {
@@ -280,6 +281,10 @@ const normalizeCollection = (value: unknown): Collection | null => {
     activeEnvironmentId:
       typeof candidate.activeEnvironmentId === "string" || candidate.activeEnvironmentId === null
         ? candidate.activeEnvironmentId
+        : null,
+    lastActiveRequestId:
+      typeof candidate.lastActiveRequestId === "string" || candidate.lastActiveRequestId === null
+        ? candidate.lastActiveRequestId
         : null,
   };
 };
@@ -736,6 +741,7 @@ const normalizePostmanCollection = (value: unknown): Collection | null => {
     requestTree,
     environments: defaultEnvironment ? [defaultEnvironment] : [],
     activeEnvironmentId: defaultEnvironment ? defaultEnvironment.id : null,
+    lastActiveRequestId: null,
   };
 };
 
