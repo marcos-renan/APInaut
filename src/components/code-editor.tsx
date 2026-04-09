@@ -17,7 +17,7 @@ type CodeEditorProps = {
   language?: EditorLanguage;
   readOnly?: boolean;
   placeholder?: string;
-  height?: number;
+  height?: number | string;
   className?: string;
   errorTone?: boolean;
   enableJsonAutocomplete?: boolean;
@@ -33,6 +33,7 @@ const editorTheme = EditorView.theme(
     ".cm-scroller": {
       fontFamily: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace",
       lineHeight: "1.55",
+      overflow: "auto",
     },
     ".cm-gutters": {
       backgroundColor: "#121025",
@@ -125,7 +126,7 @@ export const CodeEditor = ({
         onChange={(nextValue) => onChange?.(nextValue)}
         editable={!readOnly}
         readOnly={readOnly}
-        height={`${height}px`}
+        height={typeof height === "number" ? `${height}px` : height}
         theme={oneDark}
         extensions={extensions}
         basicSetup={{

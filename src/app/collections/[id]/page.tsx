@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Eye, EyeOff, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, Send, Trash2 } from "lucide-react";
 import { CodeEditor } from "@/components/code-editor";
 import {
   ApiRequest,
@@ -36,6 +36,7 @@ const MIN_LEFT_PANEL_WIDTH = 170;
 const MIN_CENTER_PANEL_WIDTH = 420;
 const MIN_RIGHT_PANEL_WIDTH = 280;
 const RESIZER_WIDTH = 1;
+const DELETE_CONFIRM_TIMEOUT_MS = 1500;
 
 const createRow = (): KeyValueRow => ({
   id: crypto.randomUUID(),
@@ -134,6 +135,42 @@ const KeyValueEditor = ({
   onAdd: () => void;
   onRemove: (id: string) => void;
 }) => {
+  const [pendingDeleteRowId, setPendingDeleteRowId] = useState<string | null>(null);
+  const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (deleteConfirmTimeoutRef.current) {
+        clearTimeout(deleteConfirmTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleRemoveClick = (rowId: string) => {
+    if (pendingDeleteRowId === rowId) {
+      if (deleteConfirmTimeoutRef.current) {
+        clearTimeout(deleteConfirmTimeoutRef.current);
+      }
+
+      deleteConfirmTimeoutRef.current = null;
+      setPendingDeleteRowId(null);
+      onRemove(rowId);
+      return;
+    }
+
+    if (deleteConfirmTimeoutRef.current) {
+      clearTimeout(deleteConfirmTimeoutRef.current);
+    }
+
+    setPendingDeleteRowId(rowId);
+
+    deleteConfirmTimeoutRef.current = setTimeout(() => {
+      setPendingDeleteRowId((current) => (current === rowId ? null : current));
+      deleteConfirmTimeoutRef.current = null;
+    }, DELETE_CONFIRM_TIMEOUT_MS);
+  };
+
   return (
     <div className="space-y-3">
       <div className="hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
@@ -143,55 +180,63 @@ const KeyValueEditor = ({
         <span>Acao</span>
       </div>
 
-      {rows.map((row) => (
-        <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]">
-          <button
-            type="button"
-            onClick={() => onChange(row.id, "enabled", !row.enabled)}
-            className={`flex h-10 items-center justify-center rounded-lg border transition ${
-              row.enabled
-                ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
-                : "border-white/15 bg-[#121025] hover:bg-white/10"
-            }`}
-            aria-pressed={row.enabled}
-            aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
-            title={row.enabled ? "Desativar linha" : "Ativar linha"}
-          >
-            <span
-              className={`relative h-5 w-9 rounded-full transition ${
-                row.enabled ? "bg-emerald-500" : "bg-zinc-700"
+      {rows.map((row) => {
+        const isDeletePending = pendingDeleteRowId === row.id;
+
+        return (
+          <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]">
+            <button
+              type="button"
+              onClick={() => onChange(row.id, "enabled", !row.enabled)}
+              className={`flex h-10 items-center justify-center rounded-lg border transition ${
+                row.enabled
+                  ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
+                  : "border-white/15 bg-[#121025] hover:bg-white/10"
               }`}
+              aria-pressed={row.enabled}
+              aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
+              title={row.enabled ? "Desativar linha" : "Ativar linha"}
             >
               <span
-                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                  row.enabled ? "translate-x-4" : ""
+                className={`relative h-5 w-9 rounded-full transition ${
+                  row.enabled ? "bg-emerald-500" : "bg-zinc-700"
                 }`}
-              />
-            </span>
-          </button>
-          <input
-            value={row.key}
-            onChange={(event) => onChange(row.id, "key", event.target.value)}
-            className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-            placeholder="authorization"
-          />
-          <input
-            value={row.value}
-            onChange={(event) => onChange(row.id, "value", event.target.value)}
-            className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-            placeholder="valor"
-          />
-          <button
-            type="button"
-            onClick={() => onRemove(row.id)}
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 text-zinc-200 transition hover:bg-white/10"
-            aria-label="Remover linha"
-            title="Remover linha"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
+              >
+                <span
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                    row.enabled ? "translate-x-4" : ""
+                  }`}
+                />
+              </span>
+            </button>
+            <input
+              value={row.key}
+              onChange={(event) => onChange(row.id, "key", event.target.value)}
+              className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+              placeholder="authorization"
+            />
+            <input
+              value={row.value}
+              onChange={(event) => onChange(row.id, "value", event.target.value)}
+              className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+              placeholder="valor"
+            />
+            <button
+              type="button"
+              onClick={() => handleRemoveClick(row.id)}
+              className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
+                isDeletePending
+                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+              }`}
+              aria-label={isDeletePending ? "Clique novamente para remover linha" : "Remover linha"}
+              title={isDeletePending ? "Clique novamente para remover" : "Remover linha"}
+            >
+              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+            </button>
+          </div>
+        );
+      })}
 
       <button
         type="button"
@@ -598,9 +643,9 @@ export default function CollectionDetailsPage() {
   } as CSSProperties;
 
   return (
-    <main className="min-h-screen bg-[#100e1a] text-white">
-      <div className="flex w-full flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <main className="min-h-screen bg-[#100e1a] text-white xl:h-screen xl:overflow-hidden">
+      <div className="flex w-full flex-col xl:h-full xl:overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 xl:shrink-0">
           <div className="space-y-1">
             <Link
               href="/"
@@ -622,10 +667,10 @@ export default function CollectionDetailsPage() {
 
         <div
           ref={layoutRef}
-          className="grid gap-0 xl:[grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
+          className="grid gap-0 xl:min-h-0 xl:flex-1 xl:[grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
           style={desktopGridStyle}
         >
-          <aside className="border-y border-white/10 bg-[#1a1728] p-3">
+          <aside className="border-y border-white/10 bg-[#1a1728] p-3 xl:min-h-0 xl:overflow-auto">
             <h2 className="mb-3 text-sm font-medium text-zinc-300">Requisicoes</h2>
             <div className="space-y-2">
               {collection.requests.length === 0 && (
@@ -669,10 +714,10 @@ export default function CollectionDetailsPage() {
             />
           </div>
 
-          <section className="border-y border-white/10 bg-[#1a1728] p-5">
+          <section className="border-y border-white/10 bg-[#1a1728] p-5 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
             {activeRequest ? (
               <>
-                <div className="mb-3 grid gap-2">
+                <div className="mb-3 grid gap-2 xl:shrink-0">
                   <input
                     value={activeRequest.name}
                     onChange={(event) =>
@@ -728,7 +773,7 @@ export default function CollectionDetailsPage() {
                   </div>
                 </div>
 
-                <div className="mb-3 flex flex-wrap gap-2 border-b border-white/10 pb-3">
+                <div className="mb-3 flex flex-wrap gap-2 border-b border-white/10 pb-3 xl:shrink-0">
                   {[
                     { id: "params", label: "Params" },
                     { id: "body", label: "Body" },
@@ -749,27 +794,31 @@ export default function CollectionDetailsPage() {
                   ))}
                 </div>
 
-                <div className="min-h-[360px]">
+                <div className="min-h-[360px] xl:min-h-0 xl:flex-1 xl:overflow-auto">
                   {requestTab === "params" && (
-                    <KeyValueEditor
-                      rows={activeRequest.params}
-                      onChange={(rowId, field, value) => updateRow("params", rowId, field, value)}
-                      onAdd={() => addRow("params")}
-                      onRemove={(rowId) => removeRow("params", rowId)}
-                    />
+                    <div className="h-full overflow-auto pr-1">
+                      <KeyValueEditor
+                        rows={activeRequest.params}
+                        onChange={(rowId, field, value) => updateRow("params", rowId, field, value)}
+                        onAdd={() => addRow("params")}
+                        onRemove={(rowId) => removeRow("params", rowId)}
+                      />
+                    </div>
                   )}
 
                   {requestTab === "headers" && (
-                    <KeyValueEditor
-                      rows={activeRequest.headers}
-                      onChange={(rowId, field, value) => updateRow("headers", rowId, field, value)}
-                      onAdd={() => addRow("headers")}
-                      onRemove={(rowId) => removeRow("headers", rowId)}
-                    />
+                    <div className="h-full overflow-auto pr-1">
+                      <KeyValueEditor
+                        rows={activeRequest.headers}
+                        onChange={(rowId, field, value) => updateRow("headers", rowId, field, value)}
+                        onAdd={() => addRow("headers")}
+                        onRemove={(rowId) => removeRow("headers", rowId)}
+                      />
+                    </div>
                   )}
 
                   {requestTab === "body" && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 xl:flex xl:h-full xl:flex-col xl:space-y-2">
                       <select
                         value={activeRequest.bodyMode}
                         onChange={(event) =>
@@ -778,7 +827,7 @@ export default function CollectionDetailsPage() {
                             bodyMode: event.target.value as ApiRequest["bodyMode"],
                           }))
                         }
-                        className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                        className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2 xl:shrink-0"
                       >
                         <option value="none">Sem body</option>
                         <option value="json">JSON</option>
@@ -797,7 +846,7 @@ export default function CollectionDetailsPage() {
                         readOnly={activeRequest.bodyMode === "none"}
                         enableJsonAutocomplete={activeRequest.bodyMode === "json"}
                         height={280}
-                        className={activeRequest.bodyMode === "none" ? "opacity-60" : undefined}
+                        className={activeRequest.bodyMode === "none" ? "opacity-60 xl:min-h-0 xl:flex-1" : "xl:min-h-0 xl:flex-1"}
                         placeholder={
                           activeRequest.bodyMode === "none"
                             ? "Selecione JSON ou Text para habilitar o body."
@@ -810,7 +859,7 @@ export default function CollectionDetailsPage() {
                   )}
 
                   {requestTab === "auth" && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 overflow-auto pr-1">
                       <select
                         value={activeRequest.authType}
                         onChange={(event) =>
@@ -894,7 +943,7 @@ export default function CollectionDetailsPage() {
                   )}
 
                   {requestTab === "script" && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 overflow-auto pr-1">
                       <div className="flex gap-2">
                         <button
                           type="button"
@@ -972,8 +1021,8 @@ export default function CollectionDetailsPage() {
             />
           </div>
 
-          <section className="border-y border-white/10 bg-[#1a1728] p-5">
-            <div className="mb-3 grid grid-cols-3 gap-2">
+          <section className="border-y border-white/10 bg-[#1a1728] p-5 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
+            <div className="mb-3 grid grid-cols-3 gap-2 xl:shrink-0">
               <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
                 <p className="text-[11px] uppercase tracking-wide text-zinc-400">Status</p>
                 <p
@@ -1000,8 +1049,8 @@ export default function CollectionDetailsPage() {
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-white/10 bg-[#121025]">
-              <div className="flex items-center gap-1 border-b border-white/10 p-1">
+            <div className="overflow-hidden rounded-lg border border-white/10 bg-[#121025] xl:min-h-0 xl:flex-1">
+              <div className="flex items-center gap-1 border-b border-white/10 p-1 xl:shrink-0">
                 {[
                   { id: "body", label: "Body" },
                   { id: "headers", label: "Headers" },
@@ -1027,8 +1076,8 @@ export default function CollectionDetailsPage() {
                 readOnly
                 language={responseLanguage}
                 errorTone={hasResponseError}
-                height={486}
-                className="rounded-none border-0"
+                height="100%"
+                className="h-[486px] overflow-auto rounded-none border-0 xl:h-full"
                 placeholder={
                   responseTab === "cookies"
                     ? "Nenhum cookie retornado."

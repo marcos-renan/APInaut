@@ -3,6 +3,9 @@
 :root {
   --background: #100e1a;
   --foreground: #f5f3ff;
+  --scrollbar-track: #171328;
+  --scrollbar-thumb: #4a3b78;
+  --scrollbar-thumb-hover: #5c4b94;
 }
 
 @theme inline {
@@ -15,4 +18,32 @@
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #5a4a90 0%, #44356f 100%);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #6c59ad 0%, #504081 100%);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
 }
