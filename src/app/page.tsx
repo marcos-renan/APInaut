@@ -34,6 +34,8 @@ export default function Home() {
         name: cleanName,
         createdAt: new Date().toISOString(),
         requestTree: [],
+        environments: [],
+        activeEnvironmentId: null,
       },
       ...collections,
     ]);

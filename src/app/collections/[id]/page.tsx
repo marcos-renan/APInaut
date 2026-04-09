@@ -8,8 +8,10 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ChangeEvent as ReactChangeEvent,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -28,6 +30,9 @@ import {
 import { CodeEditor } from "@/components/code-editor";
 import {
   ApiRequest,
+  Collection,
+  Environment,
+  EnvironmentVariable,
   RequestTreeFolderNode,
   RequestTreeNode,
   KeyValueRow,
@@ -66,6 +71,19 @@ type DragDropTarget =
   | { type: "folder"; folderId: string }
   | null;
 
+type TemplateSuggestionState = {
+  x: number;
+  y: number;
+  options: string[];
+  query: string;
+  selectedIndex: number;
+  fieldValue: string;
+  replaceFrom: number;
+  replaceTo: number;
+  apply: (nextValue: string, nextCaret: number) => void;
+  fieldElement: HTMLInputElement | HTMLTextAreaElement;
+} | null;
+
 const MIN_LEFT_PANEL_WIDTH = 170;
 const MIN_CENTER_PANEL_WIDTH = 420;
 const MIN_RIGHT_PANEL_WIDTH = 280;
@@ -78,6 +96,10 @@ const REQUEST_CONTEXT_MENU_HEIGHT_REQUEST = 96;
 const REQUEST_CONTEXT_MENU_HEIGHT_FOLDER = 132;
 const REQUEST_CONTEXT_MENU_VIEWPORT_PADDING = 8;
 const REQUEST_LIST_INDENT = 16;
+const TEMPLATE_SUGGESTION_MENU_WIDTH = 240;
+const TEMPLATE_SUGGESTION_MENU_HEIGHT = 220;
+const TEMPLATE_VARIABLE_TRIGGER_REGEX = /\{\{([A-Za-z0-9_.-]*)$/;
+const TEMPLATE_VARIABLE_LOOKUP_REGEX = /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
 const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 const METHOD_STYLE_MAP: Record<
@@ -204,6 +226,19 @@ const createFolderNode = (name = "New Folder"): RequestTreeFolderNode => ({
   type: "folder",
   name,
   children: [],
+});
+
+const createEnvironmentVariableRow = (): EnvironmentVariable => ({
+  id: crypto.randomUUID(),
+  enabled: true,
+  key: "",
+  value: "",
+});
+
+const createEnvironmentItem = (name = "Default"): Environment => ({
+  id: crypto.randomUUID(),
+  name,
+  variables: [],
 });
 
 const hasRequestInTree = (tree: RequestTreeNode[], requestId: string | null): boolean => {
@@ -452,6 +487,34 @@ const moveNodeToTarget = (
   return inserted.tree;
 };
 
+const interpolateTemplateValue = (value: string, variables: Record<string, string>) =>
+  value.replace(TEMPLATE_VARIABLE_LOOKUP_REGEX, (match, variableName: string) =>
+    Object.prototype.hasOwnProperty.call(variables, variableName) ? variables[variableName] : match,
+  );
+
+const interpolateRows = (rows: KeyValueRow[], variables: Record<string, string>): KeyValueRow[] =>
+  rows.map((row) => ({
+    ...row,
+    key: interpolateTemplateValue(row.key, variables),
+    value: interpolateTemplateValue(row.value, variables),
+  }));
+
+const resolveRequestWithEnvironment = (
+  request: ApiRequest,
+  variables: Record<string, string>,
+): ApiRequest => ({
+  ...request,
+  url: interpolateTemplateValue(request.url, variables),
+  params: interpolateRows(request.params, variables),
+  headers: interpolateRows(request.headers, variables),
+  body: interpolateTemplateValue(request.body, variables),
+  bearerToken: interpolateTemplateValue(request.bearerToken, variables),
+  basicUsername: interpolateTemplateValue(request.basicUsername, variables),
+  basicPassword: interpolateTemplateValue(request.basicPassword, variables),
+  preRequestScript: interpolateTemplateValue(request.preRequestScript, variables),
+  afterResponseScript: interpolateTemplateValue(request.afterResponseScript, variables),
+});
+
 const buildUrlWithParams = (baseUrl: string, params: KeyValueRow[]) => {
   const url = new URL(baseUrl);
 
@@ -519,11 +582,22 @@ const KeyValueEditor = ({
   onChange,
   onAdd,
   onRemove,
+  onTextFieldChange,
+  onTextFieldKeyDown,
 }: {
   rows: KeyValueRow[];
   onChange: (id: string, field: keyof KeyValueRow, value: string | boolean) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  onTextFieldChange?: (
+    event: ReactChangeEvent<HTMLInputElement>,
+    applyValue: (nextValue: string) => void,
+  ) => void;
+  onTextFieldKeyDown?: (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    currentValue: string,
+    applyValue: (nextValue: string) => void,
+  ) => void;
 }) => {
   const [pendingDeleteRowId, setPendingDeleteRowId] = useState<string | null>(null);
   const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -601,13 +675,37 @@ const KeyValueEditor = ({
             </button>
             <input
               value={row.key}
-              onChange={(event) => onChange(row.id, "key", event.target.value)}
+              onChange={(event) => {
+                const apply = (nextValue: string) => onChange(row.id, "key", nextValue);
+
+                if (onTextFieldChange) {
+                  onTextFieldChange(event, apply);
+                  return;
+                }
+
+                apply(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                onTextFieldKeyDown?.(event, row.key, (nextValue) => onChange(row.id, "key", nextValue));
+              }}
               className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
               placeholder="authorization"
             />
             <input
               value={row.value}
-              onChange={(event) => onChange(row.id, "value", event.target.value)}
+              onChange={(event) => {
+                const apply = (nextValue: string) => onChange(row.id, "value", nextValue);
+
+                if (onTextFieldChange) {
+                  onTextFieldChange(event, apply);
+                  return;
+                }
+
+                apply(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                onTextFieldKeyDown?.(event, row.value, (nextValue) => onChange(row.id, "value", nextValue));
+              }}
               className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
               placeholder="valor"
             />
@@ -643,6 +741,7 @@ export default function CollectionDetailsPage() {
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const requestContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const templateSuggestionRef = useRef<HTMLDivElement | null>(null);
   const initialPaneWidthsRef = useRef<PaneWidths>(getInitialPaneWidths());
   const collections = useSyncExternalStore(
     subscribeCollections,
@@ -666,6 +765,9 @@ export default function CollectionDetailsPage() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [scriptError, setScriptError] = useState<string | null>(null);
   const [result, setResult] = useState<RequestExecutionResult | null>(null);
+  const [isEnvironmentModalOpen, setIsEnvironmentModalOpen] = useState(false);
+  const [newEnvironmentName, setNewEnvironmentName] = useState("");
+  const [editingEnvironmentId, setEditingEnvironmentId] = useState<string | null>(null);
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showBasicPassword, setShowBasicPassword] = useState(false);
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
@@ -674,6 +776,7 @@ export default function CollectionDetailsPage() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
   const [requestContextMenu, setRequestContextMenu] = useState<RequestContextMenuState>(null);
+  const [templateSuggestion, setTemplateSuggestion] = useState<TemplateSuggestionState>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dragDropTarget, setDragDropTarget] = useState<DragDropTarget>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useState(initialPaneWidthsRef.current.left);
@@ -737,6 +840,52 @@ export default function CollectionDetailsPage() {
   }, [requestContextMenu]);
 
   useEffect(() => {
+    if (!templateSuggestion) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        templateSuggestionRef.current &&
+        event.target instanceof Node &&
+        templateSuggestionRef.current.contains(event.target)
+      ) {
+        return;
+      }
+
+      if (
+        event.target instanceof Node &&
+        templateSuggestion.fieldElement &&
+        templateSuggestion.fieldElement.contains(event.target)
+      ) {
+        return;
+      }
+
+      setTemplateSuggestion(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTemplateSuggestion(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setTemplateSuggestion(null);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("scroll", handleScroll, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [templateSuggestion]);
+
+  useEffect(() => {
     if (!resizingPane) {
       return;
     }
@@ -797,6 +946,85 @@ export default function CollectionDetailsPage() {
   }, [leftPanelWidth, resizingPane, rightPanelWidth]);
 
   const requestTree = useMemo(() => collection?.requestTree ?? [], [collection]);
+  const environments = useMemo(() => collection?.environments ?? [], [collection]);
+  const activeEnvironment = useMemo(
+    () =>
+      collection?.activeEnvironmentId
+        ? environments.find((environment) => environment.id === collection.activeEnvironmentId) ?? null
+        : null,
+    [collection, environments],
+  );
+  const templateVariableOptions = useMemo(() => {
+    if (!activeEnvironment) {
+      return [];
+    }
+
+    const seen = new Set<string>();
+    const options: string[] = [];
+
+    for (const variable of activeEnvironment.variables) {
+      if (!variable.enabled) {
+        continue;
+      }
+
+      const key = variable.key.trim();
+
+      if (!key || seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      options.push(key);
+    }
+
+    return options;
+  }, [activeEnvironment]);
+
+  const activeTemplateVariables = useMemo(() => {
+    if (!activeEnvironment) {
+      return {} as Record<string, string>;
+    }
+
+    const variableMap: Record<string, string> = {};
+
+    for (const variable of activeEnvironment.variables) {
+      if (!variable.enabled) {
+        continue;
+      }
+
+      const key = variable.key.trim();
+
+      if (!key || variableMap[key] !== undefined) {
+        continue;
+      }
+
+      variableMap[key] = variable.value;
+    }
+
+    return variableMap;
+  }, [activeEnvironment]);
+
+  useEffect(() => {
+    if (!isEnvironmentModalOpen) {
+      return;
+    }
+
+    if (environments.length === 0) {
+      setEditingEnvironmentId(null);
+      return;
+    }
+
+    if (!editingEnvironmentId) {
+      setEditingEnvironmentId(environments[0].id);
+      return;
+    }
+
+    const exists = environments.some((environment) => environment.id === editingEnvironmentId);
+
+    if (!exists) {
+      setEditingEnvironmentId(environments[0].id);
+    }
+  }, [editingEnvironmentId, environments, isEnvironmentModalOpen]);
 
   useEffect(() => {
     const firstRequestId = findFirstRequestId(requestTree);
@@ -811,6 +1039,41 @@ export default function CollectionDetailsPage() {
     }
   }, [activeRequestId, requestTree]);
 
+  useEffect(() => {
+    if (!collection) {
+      return;
+    }
+
+    if (collection.environments.length === 0) {
+      return;
+    }
+
+    const ensureActiveEnvironmentId = (environmentId: string) => {
+      if (!collectionId) {
+        return;
+      }
+
+      updateCollections((current) =>
+        current.map((item) =>
+          item.id === collectionId ? { ...item, activeEnvironmentId: environmentId } : item,
+        ),
+      );
+    };
+
+    if (!collection.activeEnvironmentId) {
+      ensureActiveEnvironmentId(collection.environments[0].id);
+      return;
+    }
+
+    const exists = collection.environments.some(
+      (environment) => environment.id === collection.activeEnvironmentId,
+    );
+
+    if (!exists) {
+      ensureActiveEnvironmentId(collection.environments[0].id);
+    }
+  }, [collection, collectionId]);
+
   const activeRequest = useMemo(
     () => findRequestById(requestTree, activeRequestId),
     [requestTree, activeRequestId],
@@ -821,7 +1084,13 @@ export default function CollectionDetailsPage() {
     [requestContextMenu, requestTree],
   );
 
-  const updateCollectionTree = (updater: (tree: RequestTreeNode[]) => RequestTreeNode[]) => {
+  const editingEnvironment = useMemo(
+    () =>
+      editingEnvironmentId ? environments.find((environment) => environment.id === editingEnvironmentId) ?? null : null,
+    [editingEnvironmentId, environments],
+  );
+
+  const updateCurrentCollection = (updater: (currentCollection: Collection) => Collection) => {
     if (!collectionId) {
       return;
     }
@@ -832,12 +1101,40 @@ export default function CollectionDetailsPage() {
           return item;
         }
 
-        return {
-          ...item,
-          requestTree: updater(item.requestTree),
-        };
+        return updater(item);
       }),
     );
+  };
+
+  const updateCollectionTree = (updater: (tree: RequestTreeNode[]) => RequestTreeNode[]) => {
+    updateCurrentCollection((currentCollection) => ({
+      ...currentCollection,
+      requestTree: updater(currentCollection.requestTree),
+    }));
+  };
+
+  const updateCollectionEnvironments = (updater: (environments: Environment[]) => Environment[]) => {
+    updateCurrentCollection((currentCollection) => {
+      const nextEnvironments = updater(currentCollection.environments);
+      const stillExists =
+        currentCollection.activeEnvironmentId &&
+        nextEnvironments.some((environment) => environment.id === currentCollection.activeEnvironmentId);
+
+      return {
+        ...currentCollection,
+        environments: nextEnvironments,
+        activeEnvironmentId: stillExists
+          ? currentCollection.activeEnvironmentId
+          : nextEnvironments[0]?.id ?? null,
+      };
+    });
+  };
+
+  const setActiveEnvironmentId = (environmentId: string | null) => {
+    updateCurrentCollection((currentCollection) => ({
+      ...currentCollection,
+      activeEnvironmentId: environmentId,
+    }));
   };
 
   const updateActiveRequest = (updater: (request: ApiRequest) => ApiRequest) => {
@@ -886,6 +1183,163 @@ export default function CollectionDetailsPage() {
         [area]: filtered.length ? filtered : [createRow()],
       };
     });
+  };
+
+  const getTemplateSuggestionOptions = (query: string) => {
+    const normalized = query.trim().toLowerCase();
+
+    if (!normalized) {
+      return templateVariableOptions;
+    }
+
+    return templateVariableOptions.filter((option) => option.toLowerCase().includes(normalized));
+  };
+
+  const openTemplateSuggestionForField = (
+    fieldElement: HTMLInputElement | HTMLTextAreaElement,
+    fieldValue: string,
+    applyValue: (nextValue: string) => void,
+    explicitTrigger: boolean,
+  ) => {
+    const caretPosition = fieldElement.selectionStart ?? fieldValue.length;
+    const beforeCaret = fieldValue.slice(0, caretPosition);
+    const triggerMatch = beforeCaret.match(TEMPLATE_VARIABLE_TRIGGER_REGEX);
+
+    if (!triggerMatch && !explicitTrigger) {
+      setTemplateSuggestion((current) =>
+        current?.fieldElement === fieldElement ? null : current,
+      );
+      return;
+    }
+
+    const replaceFrom = triggerMatch ? caretPosition - triggerMatch[0].length : caretPosition;
+    const replaceTo = caretPosition;
+    const query = triggerMatch ? triggerMatch[1] : "";
+    const options = getTemplateSuggestionOptions(query);
+
+    if (options.length === 0) {
+      setTemplateSuggestion((current) =>
+        current?.fieldElement === fieldElement ? null : current,
+      );
+      return;
+    }
+
+    const fieldRect = fieldElement.getBoundingClientRect();
+    const viewportPadding = REQUEST_CONTEXT_MENU_VIEWPORT_PADDING;
+    const estimatedHeight = Math.min(
+      TEMPLATE_SUGGESTION_MENU_HEIGHT,
+      44 + options.length * 34,
+    );
+    const x = Math.max(
+      viewportPadding,
+      Math.min(fieldRect.left, window.innerWidth - TEMPLATE_SUGGESTION_MENU_WIDTH - viewportPadding),
+    );
+    const y = Math.max(
+      viewportPadding,
+      Math.min(fieldRect.bottom + 6, window.innerHeight - estimatedHeight - viewportPadding),
+    );
+
+    setTemplateSuggestion({
+      x,
+      y,
+      options,
+      query,
+      selectedIndex: 0,
+      fieldValue,
+      replaceFrom,
+      replaceTo,
+      apply: (nextValue: string, nextCaret: number) => {
+        applyValue(nextValue);
+        requestAnimationFrame(() => {
+          fieldElement.focus();
+          fieldElement.setSelectionRange(nextCaret, nextCaret);
+        });
+      },
+      fieldElement,
+    });
+  };
+
+  const applyTemplateSuggestion = (option: string) => {
+    setTemplateSuggestion((current) => {
+      if (!current) {
+        return null;
+      }
+
+      const replacement = `{{${option}}}`;
+      const nextValue = `${current.fieldValue.slice(0, current.replaceFrom)}${replacement}${current.fieldValue.slice(
+        current.replaceTo,
+      )}`;
+      const nextCaret = current.replaceFrom + replacement.length;
+      current.apply(nextValue, nextCaret);
+      return null;
+    });
+  };
+
+  const handleTemplateTextFieldChange = (
+    event: ReactChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+    applyValue: (nextValue: string) => void,
+  ) => {
+    const nextValue = event.target.value;
+    applyValue(nextValue);
+    openTemplateSuggestionForField(event.target, nextValue, applyValue, false);
+  };
+
+  const handleTemplateTextFieldKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+    currentValue: string,
+    applyValue: (nextValue: string) => void,
+  ) => {
+    const fieldElement = event.currentTarget;
+
+    if (templateSuggestion && templateSuggestion.fieldElement === fieldElement) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setTemplateSuggestion((current) => {
+          if (!current) {
+            return current;
+          }
+
+          return {
+            ...current,
+            selectedIndex: (current.selectedIndex + 1) % current.options.length,
+          };
+        });
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setTemplateSuggestion((current) => {
+          if (!current) {
+            return current;
+          }
+
+          return {
+            ...current,
+            selectedIndex:
+              (current.selectedIndex - 1 + current.options.length) % current.options.length,
+          };
+        });
+        return;
+      }
+
+      if ((event.key === "Enter" || event.key === "Tab") && templateSuggestion.options.length > 0) {
+        event.preventDefault();
+        applyTemplateSuggestion(templateSuggestion.options[templateSuggestion.selectedIndex]);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setTemplateSuggestion(null);
+        return;
+      }
+    }
+
+    if (event.ctrlKey && event.code === "Space") {
+      event.preventDefault();
+      openTemplateSuggestionForField(fieldElement, currentValue, applyValue, true);
+    }
   };
 
   const createRequest = () => {
@@ -941,6 +1395,82 @@ export default function CollectionDetailsPage() {
     setEditingRequestId(null);
     setEditingRequestName("");
     setRequestContextMenu(null);
+  };
+
+  const openEnvironmentModal = () => {
+    setEditingEnvironmentId(activeEnvironment?.id ?? environments[0]?.id ?? null);
+    setIsEnvironmentModalOpen(true);
+  };
+
+  const closeEnvironmentModal = () => {
+    setIsEnvironmentModalOpen(false);
+    setNewEnvironmentName("");
+  };
+
+  const createEnvironment = () => {
+    const fallbackName = `Environment ${environments.length + 1}`;
+    const nextName = newEnvironmentName.trim() || fallbackName;
+    const environment = createEnvironmentItem(nextName);
+
+    updateCollectionEnvironments((current) => [environment, ...current]);
+    setActiveEnvironmentId(environment.id);
+    setEditingEnvironmentId(environment.id);
+    setNewEnvironmentName("");
+  };
+
+  const deleteEnvironment = (environmentId: string) => {
+    updateCollectionEnvironments((current) =>
+      current.filter((environment) => environment.id !== environmentId),
+    );
+
+    if (editingEnvironmentId === environmentId) {
+      setEditingEnvironmentId(null);
+    }
+  };
+
+  const updateEnvironmentName = (environmentId: string, name: string) => {
+    updateCollectionEnvironments((current) =>
+      current.map((environment) =>
+        environment.id === environmentId ? { ...environment, name } : environment,
+      ),
+    );
+  };
+
+  const updateEnvironmentVariables = (
+    environmentId: string,
+    updater: (variables: EnvironmentVariable[]) => EnvironmentVariable[],
+  ) => {
+    updateCollectionEnvironments((current) =>
+      current.map((environment) =>
+        environment.id === environmentId
+          ? {
+              ...environment,
+              variables: updater(environment.variables),
+            }
+          : environment,
+      ),
+    );
+  };
+
+  const addEnvironmentVariable = (environmentId: string) => {
+    updateEnvironmentVariables(environmentId, (variables) => [...variables, createEnvironmentVariableRow()]);
+  };
+
+  const updateEnvironmentVariable = (
+    environmentId: string,
+    variableId: string,
+    field: keyof EnvironmentVariable,
+    value: string | boolean,
+  ) => {
+    updateEnvironmentVariables(environmentId, (variables) =>
+      variables.map((variable) => (variable.id === variableId ? { ...variable, [field]: value } : variable)),
+    );
+  };
+
+  const removeEnvironmentVariable = (environmentId: string, variableId: string) => {
+    updateEnvironmentVariables(environmentId, (variables) =>
+      variables.filter((variable) => variable.id !== variableId),
+    );
   };
 
   const toggleFolderExpanded = (folderId: string) => {
@@ -1255,7 +1785,8 @@ export default function CollectionDetailsPage() {
     setScriptError(null);
 
     try {
-      const finalUrl = buildUrlWithParams(activeRequest.url.trim(), activeRequest.params);
+      const resolvedRequest = resolveRequestWithEnvironment(activeRequest, activeTemplateVariables);
+      const finalUrl = buildUrlWithParams(resolvedRequest.url.trim(), resolvedRequest.params);
 
       const payload: {
         method: ApiRequest["method"];
@@ -1263,20 +1794,21 @@ export default function CollectionDetailsPage() {
         headers: Record<string, string>;
         body?: string;
       } = {
-        method: activeRequest.method,
+        method: resolvedRequest.method,
         url: finalUrl,
-        headers: buildHeaders(activeRequest),
+        headers: buildHeaders(resolvedRequest),
       };
 
       const methodWithoutBody = payload.method === "GET";
 
-      if (!methodWithoutBody && activeRequest.bodyMode !== "none" && activeRequest.body.trim()) {
-        payload.body = activeRequest.body;
+      if (!methodWithoutBody && resolvedRequest.bodyMode !== "none" && resolvedRequest.body.trim()) {
+        payload.body = resolvedRequest.body;
       }
 
       try {
-        runUserScript(activeRequest.preRequestScript, {
+        runUserScript(resolvedRequest.preRequestScript, {
           request: payload,
+          environment: activeTemplateVariables,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Falha no script pre-request.";
@@ -1309,9 +1841,10 @@ export default function CollectionDetailsPage() {
       const resultPayload = data.response;
 
       try {
-        runUserScript(activeRequest.afterResponseScript, {
+        runUserScript(resolvedRequest.afterResponseScript, {
           request: payload,
           response: resultPayload,
+          environment: activeTemplateVariables,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Falha no script after-response.";
@@ -1512,6 +2045,28 @@ export default function CollectionDetailsPage() {
             <ArrowBigLeft className="h-4 w-4" />
           </Link>
           <h1 className="text-xl font-semibold">{collection.name}</h1>
+
+          <div className="ml-auto flex items-center gap-2">
+            <select
+              value={collection.activeEnvironmentId ?? ""}
+              onChange={(event) => setActiveEnvironmentId(event.target.value || null)}
+              className="h-8 rounded-md border border-white/15 bg-[#121025] px-2 text-xs text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+            >
+              <option value="">Sem ambiente</option>
+              {environments.map((environment) => (
+                <option key={environment.id} value={environment.id}>
+                  {environment.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={openEnvironmentModal}
+              className="h-8 rounded-md border border-violet-300/45 bg-violet-500/15 px-3 text-xs font-medium text-violet-100 transition hover:bg-violet-500/25"
+            >
+              Ambientes
+            </button>
+          </div>
         </div>
 
         <div
@@ -1607,10 +2162,20 @@ export default function CollectionDetailsPage() {
                     <input
                       value={activeRequest.url}
                       onChange={(event) =>
-                        updateActiveRequest((request) => ({
-                          ...request,
-                          url: event.target.value,
-                        }))
+                        handleTemplateTextFieldChange(event, (nextValue) =>
+                          updateActiveRequest((request) => ({
+                            ...request,
+                            url: nextValue,
+                          })),
+                        )
+                      }
+                      onKeyDown={(event) =>
+                        handleTemplateTextFieldKeyDown(event, activeRequest.url, (nextValue) =>
+                          updateActiveRequest((request) => ({
+                            ...request,
+                            url: nextValue,
+                          })),
+                        )
                       }
                       className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
                       placeholder="https://api.exemplo.com/recurso"
@@ -1658,6 +2223,8 @@ export default function CollectionDetailsPage() {
                         onChange={(rowId, field, value) => updateRow("params", rowId, field, value)}
                         onAdd={() => addRow("params")}
                         onRemove={(rowId) => removeRow("params", rowId)}
+                        onTextFieldChange={handleTemplateTextFieldChange}
+                        onTextFieldKeyDown={handleTemplateTextFieldKeyDown}
                       />
                     </div>
                   )}
@@ -1669,6 +2236,8 @@ export default function CollectionDetailsPage() {
                         onChange={(rowId, field, value) => updateRow("headers", rowId, field, value)}
                         onAdd={() => addRow("headers")}
                         onRemove={(rowId) => removeRow("headers", rowId)}
+                        onTextFieldChange={handleTemplateTextFieldChange}
+                        onTextFieldKeyDown={handleTemplateTextFieldKeyDown}
                       />
                     </div>
                   )}
@@ -1702,6 +2271,8 @@ export default function CollectionDetailsPage() {
                         jsonColorPreset="response"
                         readOnly={activeRequest.bodyMode === "none"}
                         enableJsonAutocomplete={activeRequest.bodyMode === "json"}
+                        enableTemplateAutocomplete={activeRequest.bodyMode !== "none"}
+                        templateVariables={templateVariableOptions}
                         height={280}
                         className={activeRequest.bodyMode === "none" ? "opacity-60 xl:min-h-0 xl:flex-1" : "xl:min-h-0 xl:flex-1"}
                         placeholder={
@@ -1738,10 +2309,20 @@ export default function CollectionDetailsPage() {
                             type={showBearerToken ? "text" : "password"}
                             value={activeRequest.bearerToken}
                             onChange={(event) =>
-                              updateActiveRequest((request) => ({
-                                ...request,
-                                bearerToken: event.target.value,
-                              }))
+                              handleTemplateTextFieldChange(event, (nextValue) =>
+                                updateActiveRequest((request) => ({
+                                  ...request,
+                                  bearerToken: nextValue,
+                                })),
+                              )
+                            }
+                            onKeyDown={(event) =>
+                              handleTemplateTextFieldKeyDown(event, activeRequest.bearerToken, (nextValue) =>
+                                updateActiveRequest((request) => ({
+                                  ...request,
+                                  bearerToken: nextValue,
+                                })),
+                              )
                             }
                             className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 pr-10 text-sm outline-none ring-violet-400 transition focus:ring-2"
                             placeholder="Token"
@@ -1763,10 +2344,20 @@ export default function CollectionDetailsPage() {
                           <input
                             value={activeRequest.basicUsername}
                             onChange={(event) =>
-                              updateActiveRequest((request) => ({
-                                ...request,
-                                basicUsername: event.target.value,
-                              }))
+                              handleTemplateTextFieldChange(event, (nextValue) =>
+                                updateActiveRequest((request) => ({
+                                  ...request,
+                                  basicUsername: nextValue,
+                                })),
+                              )
+                            }
+                            onKeyDown={(event) =>
+                              handleTemplateTextFieldKeyDown(event, activeRequest.basicUsername, (nextValue) =>
+                                updateActiveRequest((request) => ({
+                                  ...request,
+                                  basicUsername: nextValue,
+                                })),
+                              )
                             }
                             className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
                             placeholder="Username"
@@ -1776,10 +2367,20 @@ export default function CollectionDetailsPage() {
                               type={showBasicPassword ? "text" : "password"}
                               value={activeRequest.basicPassword}
                               onChange={(event) =>
-                                updateActiveRequest((request) => ({
-                                  ...request,
-                                  basicPassword: event.target.value,
-                                }))
+                                handleTemplateTextFieldChange(event, (nextValue) =>
+                                  updateActiveRequest((request) => ({
+                                    ...request,
+                                    basicPassword: nextValue,
+                                  })),
+                                )
+                              }
+                              onKeyDown={(event) =>
+                                handleTemplateTextFieldKeyDown(event, activeRequest.basicPassword, (nextValue) =>
+                                  updateActiveRequest((request) => ({
+                                    ...request,
+                                    basicPassword: nextValue,
+                                  })),
+                                )
                               }
                               className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 pr-10 text-sm outline-none ring-violet-400 transition focus:ring-2"
                               placeholder="Password"
@@ -1830,10 +2431,20 @@ export default function CollectionDetailsPage() {
                         <textarea
                           value={activeRequest.preRequestScript}
                           onChange={(event) =>
-                            updateActiveRequest((request) => ({
-                              ...request,
-                              preRequestScript: event.target.value,
-                            }))
+                            handleTemplateTextFieldChange(event, (nextValue) =>
+                              updateActiveRequest((request) => ({
+                                ...request,
+                                preRequestScript: nextValue,
+                              })),
+                            )
+                          }
+                          onKeyDown={(event) =>
+                            handleTemplateTextFieldKeyDown(event, activeRequest.preRequestScript, (nextValue) =>
+                              updateActiveRequest((request) => ({
+                                ...request,
+                                preRequestScript: nextValue,
+                              })),
+                            )
                           }
                           className="h-[280px] w-full rounded-lg border border-white/15 bg-[#121025] p-3 text-sm font-mono outline-none ring-violet-400 transition focus:ring-2"
                           placeholder="// context.request.method = 'POST';"
@@ -1844,10 +2455,20 @@ export default function CollectionDetailsPage() {
                         <textarea
                           value={activeRequest.afterResponseScript}
                           onChange={(event) =>
-                            updateActiveRequest((request) => ({
-                              ...request,
-                              afterResponseScript: event.target.value,
-                            }))
+                            handleTemplateTextFieldChange(event, (nextValue) =>
+                              updateActiveRequest((request) => ({
+                                ...request,
+                                afterResponseScript: nextValue,
+                              })),
+                            )
+                          }
+                          onKeyDown={(event) =>
+                            handleTemplateTextFieldKeyDown(event, activeRequest.afterResponseScript, (nextValue) =>
+                              updateActiveRequest((request) => ({
+                                ...request,
+                                afterResponseScript: nextValue,
+                              })),
+                            )
                           }
                           className="h-[280px] w-full rounded-lg border border-white/15 bg-[#121025] p-3 text-sm font-mono outline-none ring-violet-400 transition focus:ring-2"
                           placeholder="// console.log(context.response.status);"
@@ -1992,6 +2613,233 @@ export default function CollectionDetailsPage() {
           >
             Deletar
           </button>
+        </div>
+      )}
+
+      {templateSuggestion && (
+        <div
+          ref={templateSuggestionRef}
+          className="fixed z-50 w-60 overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
+          style={{
+            left: templateSuggestion.x,
+            top: templateSuggestion.y,
+          }}
+        >
+          <p className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-wide text-zinc-400">
+            Variaveis de ambiente
+          </p>
+          {templateSuggestion.options.map((option, index) => (
+            <button
+              key={option}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => applyTemplateSuggestion(option)}
+              className={`w-full rounded-md px-2 py-1.5 text-left text-sm transition ${
+                templateSuggestion.selectedIndex === index
+                  ? "bg-violet-500/35 text-violet-50"
+                  : "text-zinc-100 hover:bg-white/10"
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isEnvironmentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/15 bg-[#151225] shadow-[0_12px_42px_rgba(0,0,0,0.5)]">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <h2 className="text-sm font-semibold text-zinc-100">Gerenciar ambientes</h2>
+              <button
+                type="button"
+                onClick={closeEnvironmentModal}
+                className="rounded-md border border-white/20 px-2 py-1 text-xs text-zinc-200 transition hover:bg-white/10"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="grid min-h-[420px] gap-0 md:grid-cols-[260px_minmax(0,1fr)]">
+              <aside className="border-r border-white/10 bg-[#121025] p-3">
+                <div className="space-y-2">
+                  <input
+                    value={newEnvironmentName}
+                    onChange={(event) => setNewEnvironmentName(event.target.value)}
+                    className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                    placeholder="Nome do ambiente"
+                  />
+                  <button
+                    type="button"
+                    onClick={createEnvironment}
+                    className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
+                  >
+                    Criar ambiente
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-1">
+                  {environments.length === 0 && (
+                    <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
+                      Nenhum ambiente criado.
+                    </p>
+                  )}
+
+                  {environments.map((environment) => {
+                    const isSelected = editingEnvironmentId === environment.id;
+                    const isActive = collection.activeEnvironmentId === environment.id;
+
+                    return (
+                      <button
+                        key={environment.id}
+                        type="button"
+                        onClick={() => setEditingEnvironmentId(environment.id)}
+                        className={`flex w-full items-center justify-between rounded-md border px-2 py-2 text-left text-sm transition ${
+                          isSelected
+                            ? "border-violet-300/55 bg-violet-500/20"
+                            : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
+                        }`}
+                      >
+                        <span className="truncate text-zinc-100">{environment.name}</span>
+                        {isActive && (
+                          <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
+                            ativo
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </aside>
+
+              <section className="flex min-h-0 flex-col p-4">
+                {editingEnvironment ? (
+                  <>
+                    <div className="grid gap-2 border-b border-white/10 pb-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                      <input
+                        value={editingEnvironment.name}
+                        onChange={(event) => updateEnvironmentName(editingEnvironment.id, event.target.value)}
+                        className="h-10 rounded-md border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                        placeholder="Nome do ambiente"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setActiveEnvironmentId(editingEnvironment.id)}
+                        className={`h-10 rounded-md border px-3 text-sm transition ${
+                          collection.activeEnvironmentId === editingEnvironment.id
+                            ? "border-emerald-300/55 bg-emerald-500/20 text-emerald-100"
+                            : "border-white/20 text-zinc-200 hover:bg-white/10"
+                        }`}
+                      >
+                        {collection.activeEnvironmentId === editingEnvironment.id ? "Ambiente ativo" : "Ativar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteEnvironment(editingEnvironment.id)}
+                        className="h-10 rounded-md border border-rose-300/45 bg-rose-500/15 px-3 text-sm text-rose-100 transition hover:bg-rose-500/25"
+                      >
+                        Deletar
+                      </button>
+                    </div>
+
+                    <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
+                      <div className="mb-2 hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
+                        <span>Ativo</span>
+                        <span>Variavel</span>
+                        <span>Valor</span>
+                        <span>Acao</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {editingEnvironment.variables.map((variable) => (
+                          <div
+                            key={variable.id}
+                            className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateEnvironmentVariable(
+                                  editingEnvironment.id,
+                                  variable.id,
+                                  "enabled",
+                                  !variable.enabled,
+                                )
+                              }
+                              className={`flex h-10 items-center justify-center rounded-lg border transition ${
+                                variable.enabled
+                                  ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
+                                  : "border-white/15 bg-[#121025] hover:bg-white/10"
+                              }`}
+                              aria-pressed={variable.enabled}
+                              aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
+                            >
+                              <span
+                                className={`relative h-5 w-9 rounded-full transition ${
+                                  variable.enabled ? "bg-emerald-500" : "bg-zinc-700"
+                                }`}
+                              >
+                                <span
+                                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                                    variable.enabled ? "translate-x-4" : ""
+                                  }`}
+                                />
+                              </span>
+                            </button>
+                            <input
+                              value={variable.key}
+                              onChange={(event) =>
+                                updateEnvironmentVariable(
+                                  editingEnvironment.id,
+                                  variable.id,
+                                  "key",
+                                  event.target.value,
+                                )
+                              }
+                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                              placeholder="api_host"
+                            />
+                            <input
+                              value={variable.value}
+                              onChange={(event) =>
+                                updateEnvironmentVariable(
+                                  editingEnvironment.id,
+                                  variable.id,
+                                  "value",
+                                  event.target.value,
+                                )
+                              }
+                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                              placeholder="http://localhost:8080"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeEnvironmentVariable(editingEnvironment.id, variable.id)}
+                              className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 text-zinc-200 transition hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+                              aria-label="Remover variavel"
+                              title="Remover variavel"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => addEnvironmentVariable(editingEnvironment.id)}
+                        className="mt-3 rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
+                      >
+                        + Adicionar variavel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">Crie ou selecione um ambiente para editar.</p>
+                )}
+              </section>
+            </div>
+          </div>
         </div>
       )}
     </main>

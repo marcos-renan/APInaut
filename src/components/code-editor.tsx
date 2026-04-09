@@ -2,13 +2,19 @@
 
 import { useMemo } from "react";
 import CodeMirror, { type Extension } from "@uiw/react-codemirror";
-import { closeBrackets } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  closeBrackets,
+  completionKeymap,
+  startCompletion,
+  type Completion,
+} from "@codemirror/autocomplete";
 import { json } from "@codemirror/lang-json";
 import { EditorState, Prec } from "@codemirror/state";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { EditorView, placeholder as placeholderExtension } from "@codemirror/view";
+import { EditorView, keymap, placeholder as placeholderExtension } from "@codemirror/view";
 import { cn } from "@/lib/utils";
 
 type EditorLanguage = "json" | "text";
@@ -23,6 +29,8 @@ type CodeEditorProps = {
   className?: string;
   errorTone?: boolean;
   enableJsonAutocomplete?: boolean;
+  enableTemplateAutocomplete?: boolean;
+  templateVariables?: string[];
   jsonColorPreset?: "default" | "response";
 };
 
@@ -91,6 +99,9 @@ const responseJsonHighlight = HighlightStyle.define([
   { tag: [tags.propertyName, tags.attributeName, tags.labelName], color: "#facc15" },
 ]);
 
+const TEMPLATE_MATCH_REGEX = /\{\{([A-Za-z0-9_.-]*)$/;
+const TEMPLATE_VALID_FOR_REGEX = /^[A-Za-z0-9_.-]*$/;
+
 export const CodeEditor = ({
   value,
   onChange,
@@ -101,10 +112,62 @@ export const CodeEditor = ({
   className,
   errorTone = false,
   enableJsonAutocomplete = false,
+  enableTemplateAutocomplete = false,
+  templateVariables = [],
   jsonColorPreset = "default",
 }: CodeEditorProps) => {
   const extensions = useMemo(() => {
     const nextExtensions: Extension[] = [EditorView.lineWrapping, editorTheme];
+    const templateCompletions = Array.from(new Set(templateVariables.map((item) => item.trim()).filter(Boolean))).map(
+      (variable) =>
+        ({
+          label: variable,
+          type: "variable",
+          apply: `{{${variable}}}`,
+        }) satisfies Completion,
+    );
+
+    if (enableTemplateAutocomplete && !readOnly && templateCompletions.length > 0) {
+      nextExtensions.push(
+        autocompletion({
+          activateOnTyping: true,
+          defaultKeymap: false,
+          override: [
+            (context) => {
+              const tokenMatch = context.matchBefore(TEMPLATE_MATCH_REGEX);
+
+              if (tokenMatch) {
+                const query = tokenMatch.text.slice(2).toLowerCase();
+                const filtered = query
+                  ? templateCompletions.filter((option) => option.label.toLowerCase().includes(query))
+                  : templateCompletions;
+
+                if (filtered.length === 0 && !context.explicit) {
+                  return null;
+                }
+
+                return {
+                  from: tokenMatch.from,
+                  to: context.pos,
+                  options: filtered.length ? filtered : templateCompletions,
+                  validFor: TEMPLATE_VALID_FOR_REGEX,
+                };
+              }
+
+              if (!context.explicit) {
+                return null;
+              }
+
+              return {
+                from: context.pos,
+                options: templateCompletions,
+              };
+            },
+          ],
+        }),
+        Prec.highest(keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...completionKeymap])),
+      );
+    }
 
     if (language === "json") {
       nextExtensions.push(json());
@@ -136,7 +199,16 @@ export const CodeEditor = ({
     }
 
     return nextExtensions;
-  }, [enableJsonAutocomplete, errorTone, jsonColorPreset, language, placeholder, readOnly]);
+  }, [
+    enableJsonAutocomplete,
+    enableTemplateAutocomplete,
+    errorTone,
+    jsonColorPreset,
+    language,
+    placeholder,
+    readOnly,
+    templateVariables,
+  ]);
 
   return (
     <div className={cn("overflow-hidden rounded-lg border border-white/15 bg-[#121025]", className)}>

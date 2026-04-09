@@ -28,6 +28,19 @@ export type ApiRequest = {
   afterResponseScript: string;
 };
 
+export type EnvironmentVariable = {
+  id: string;
+  enabled: boolean;
+  key: string;
+  value: string;
+};
+
+export type Environment = {
+  id: string;
+  name: string;
+  variables: EnvironmentVariable[];
+};
+
 export type RequestTreeRequestNode = {
   id: string;
   type: "request";
@@ -48,6 +61,8 @@ export type Collection = {
   name: string;
   createdAt: string;
   requestTree: RequestTreeNode[];
+  environments: Environment[];
+  activeEnvironmentId: string | null;
 };
 
 const STORAGE_KEY = "apinaut.collections";
@@ -63,6 +78,39 @@ const createRow = (seed?: Partial<KeyValueRow>): KeyValueRow => ({
   key: seed?.key ?? "",
   value: seed?.value ?? "",
 });
+
+const createEnvironmentVariable = (seed?: Partial<EnvironmentVariable>): EnvironmentVariable => ({
+  id: seed?.id ?? crypto.randomUUID(),
+  enabled: seed?.enabled ?? true,
+  key: seed?.key ?? "",
+  value: seed?.value ?? "",
+});
+
+const normalizeEnvironmentVariables = (value: unknown): EnvironmentVariable[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((entry) =>
+    createEnvironmentVariable(typeof entry === "object" && entry ? (entry as EnvironmentVariable) : {}),
+  );
+};
+
+const createEnvironment = (seed?: Partial<Environment>): Environment => ({
+  id: seed?.id ?? crypto.randomUUID(),
+  name: typeof seed?.name === "string" && seed.name.trim() ? seed.name : "Default",
+  variables: normalizeEnvironmentVariables(seed?.variables),
+});
+
+const normalizeEnvironments = (value: unknown): Environment[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((entry) =>
+    createEnvironment(typeof entry === "object" && entry ? (entry as Partial<Environment>) : {}),
+  );
+};
 
 const normalizeRows = (value: unknown): KeyValueRow[] => {
   if (!Array.isArray(value) || value.length === 0) {
@@ -202,6 +250,11 @@ const normalizeCollection = (value: unknown): Collection | null => {
     name: candidate.name,
     createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : new Date().toISOString(),
     requestTree: normalizeTree(sourceTree),
+    environments: normalizeEnvironments(candidate.environments),
+    activeEnvironmentId:
+      typeof candidate.activeEnvironmentId === "string" || candidate.activeEnvironmentId === null
+        ? candidate.activeEnvironmentId
+        : null,
   };
 };
 
