@@ -47,6 +47,7 @@ type CodeEditorProps = {
   compact?: boolean;
   singleLine?: boolean;
   allowOverflowVisible?: boolean;
+  concealText?: boolean;
 };
 
 const editorTheme = EditorView.theme(
@@ -236,6 +237,16 @@ const overflowVisibleEditorTheme = EditorView.theme(
   { dark: true },
 );
 
+const concealedTextTheme = EditorView.theme(
+  {
+    ".cm-content, .cm-line": {
+      WebkitTextSecurity: "disc",
+      textSecurity: "disc",
+    },
+  },
+  { dark: true },
+);
+
 const autocompleteMenuTheme = EditorView.theme(
   {
     ".cm-tooltip.cm-tooltip-autocomplete": {
@@ -283,6 +294,7 @@ export const CodeEditor = ({
   compact = false,
   singleLine = false,
   allowOverflowVisible = false,
+  concealText = false,
 }: CodeEditorProps) => {
   const extensions = useMemo(() => {
     const nextExtensions: Extension[] = [editorTheme];
@@ -391,6 +403,10 @@ export const CodeEditor = ({
       nextExtensions.push(overflowVisibleEditorTheme);
     }
 
+    if (concealText) {
+      nextExtensions.push(concealedTextTheme);
+    }
+
     if (singleLine) {
       nextExtensions.push(
         keymap.of([
@@ -424,6 +440,7 @@ export const CodeEditor = ({
     placeholder,
     readOnly,
     allowOverflowVisible,
+    concealText,
     compact,
     singleLine,
     templateVariables,

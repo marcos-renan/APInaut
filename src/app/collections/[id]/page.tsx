@@ -2563,11 +2563,17 @@ export default function CollectionDetailsPage() {
                             bodyMode: event.target.value as ApiRequest["bodyMode"],
                           }))
                         }
-                        className="h-10 shrink-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                        className="h-10 shrink-0 rounded-lg border border-violet-300/45 bg-violet-500/15 px-3 text-sm font-medium text-violet-100 outline-none ring-violet-400 transition focus:ring-2"
                       >
-                        <option value="none">Sem body</option>
-                        <option value="json">JSON</option>
-                        <option value="text">Text</option>
+                        <option value="none" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
+                          Sem body
+                        </option>
+                        <option value="json" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
+                          JSON
+                        </option>
+                        <option value="text" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
+                          Text
+                        </option>
                       </select>
 
                       <CodeEditor
@@ -2607,41 +2613,45 @@ export default function CollectionDetailsPage() {
                             authType: event.target.value as ApiRequest["authType"],
                           }))
                         }
-                        className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                        className="h-10 rounded-lg border border-violet-300/45 bg-violet-500/15 px-3 text-sm font-medium text-violet-100 outline-none ring-violet-400 transition focus:ring-2"
                       >
-                        <option value="none">Nenhuma</option>
-                        <option value="bearer">Bearer Token</option>
-                        <option value="basic">Basic Auth</option>
+                        <option value="none" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
+                          Nenhuma
+                        </option>
+                        <option value="bearer" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
+                          Bearer Token
+                        </option>
+                        <option value="basic" style={{ color: "#e9d5ff", backgroundColor: "#121025" }}>
+                          Basic Auth
+                        </option>
                       </select>
 
                       {activeRequest.authType === "bearer" && (
                         <div className="relative">
-                          <input
-                            type={showBearerToken ? "text" : "password"}
+                          <CodeEditor
                             value={activeRequest.bearerToken}
-                            onChange={(event) =>
-                              handleTemplateTextFieldChange(event, (nextValue) =>
-                                updateActiveRequest((request) => ({
-                                  ...request,
-                                  bearerToken: nextValue,
-                                })),
-                              )
+                            onChange={(nextValue) =>
+                              updateActiveRequest((request) => ({
+                                ...request,
+                                bearerToken: nextValue,
+                              }))
                             }
-                            onKeyDown={(event) =>
-                              handleTemplateTextFieldKeyDown(event, activeRequest.bearerToken, (nextValue) =>
-                                updateActiveRequest((request) => ({
-                                  ...request,
-                                  bearerToken: nextValue,
-                                })),
-                              )
-                            }
-                            className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 pr-10 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                            language="text"
+                            lineNumbers={false}
+                            compact
+                            singleLine
+                            allowOverflowVisible
+                            enableTemplateAutocomplete
+                            templateVariables={templateVariableOptions}
+                            concealText={!showBearerToken}
+                            height={40}
+                            className="h-10 min-w-0 [&_.cm-content]:pr-10 [&_.cm-line]:pr-10"
                             placeholder="Token"
                           />
                           <button
                             type="button"
                             onClick={() => setShowBearerToken((current) => !current)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-300 transition hover:text-white"
+                            className="absolute right-2 top-1/2 z-10 -translate-y-1/2 text-zinc-300 transition hover:text-white"
                             aria-label={showBearerToken ? "Ocultar token" : "Mostrar token"}
                             title={showBearerToken ? "Ocultar token" : "Mostrar token"}
                           >
@@ -2652,54 +2662,50 @@ export default function CollectionDetailsPage() {
 
                       {activeRequest.authType === "basic" && (
                         <div className="grid gap-2 md:grid-cols-2">
-                          <input
+                          <CodeEditor
                             value={activeRequest.basicUsername}
-                            onChange={(event) =>
-                              handleTemplateTextFieldChange(event, (nextValue) =>
-                                updateActiveRequest((request) => ({
-                                  ...request,
-                                  basicUsername: nextValue,
-                                })),
-                              )
+                            onChange={(nextValue) =>
+                              updateActiveRequest((request) => ({
+                                ...request,
+                                basicUsername: nextValue,
+                              }))
                             }
-                            onKeyDown={(event) =>
-                              handleTemplateTextFieldKeyDown(event, activeRequest.basicUsername, (nextValue) =>
-                                updateActiveRequest((request) => ({
-                                  ...request,
-                                  basicUsername: nextValue,
-                                })),
-                              )
-                            }
-                            className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                            language="text"
+                            lineNumbers={false}
+                            compact
+                            singleLine
+                            allowOverflowVisible
+                            enableTemplateAutocomplete
+                            templateVariables={templateVariableOptions}
+                            height={40}
+                            className="h-10 min-w-0"
                             placeholder="Username"
                           />
                           <div className="relative">
-                            <input
-                              type={showBasicPassword ? "text" : "password"}
+                            <CodeEditor
                               value={activeRequest.basicPassword}
-                              onChange={(event) =>
-                                handleTemplateTextFieldChange(event, (nextValue) =>
-                                  updateActiveRequest((request) => ({
-                                    ...request,
-                                    basicPassword: nextValue,
-                                  })),
-                                )
+                              onChange={(nextValue) =>
+                                updateActiveRequest((request) => ({
+                                  ...request,
+                                  basicPassword: nextValue,
+                                }))
                               }
-                              onKeyDown={(event) =>
-                                handleTemplateTextFieldKeyDown(event, activeRequest.basicPassword, (nextValue) =>
-                                  updateActiveRequest((request) => ({
-                                    ...request,
-                                    basicPassword: nextValue,
-                                  })),
-                                )
-                              }
-                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 pr-10 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                              language="text"
+                              lineNumbers={false}
+                              compact
+                              singleLine
+                              allowOverflowVisible
+                              enableTemplateAutocomplete
+                              templateVariables={templateVariableOptions}
+                              concealText={!showBasicPassword}
+                              height={40}
+                              className="h-10 min-w-0 [&_.cm-content]:pr-10 [&_.cm-line]:pr-10"
                               placeholder="Password"
                             />
                             <button
                               type="button"
                               onClick={() => setShowBasicPassword((current) => !current)}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-300 transition hover:text-white"
+                              className="absolute right-2 top-1/2 z-10 -translate-y-1/2 text-zinc-300 transition hover:text-white"
                               aria-label={showBasicPassword ? "Ocultar senha" : "Mostrar senha"}
                               title={showBasicPassword ? "Ocultar senha" : "Mostrar senha"}
                             >
