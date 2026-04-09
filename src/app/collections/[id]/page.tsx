@@ -55,7 +55,7 @@ type RequestExecutionResult = {
 };
 
 type RequestContextMenuState = {
-  requestId: string;
+  nodeId: string;
   x: number;
   y: number;
 } | null;
@@ -264,6 +264,28 @@ const findRequestById = (tree: RequestTreeNode[], requestId: string | null): Api
   return null;
 };
 
+const findNodeById = (tree: RequestTreeNode[], nodeId: string | null): RequestTreeNode | null => {
+  if (!nodeId) {
+    return null;
+  }
+
+  for (const node of tree) {
+    if (node.id === nodeId) {
+      return node;
+    }
+
+    if (node.type === "folder") {
+      const nested = findNodeById(node.children, nodeId);
+
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return null;
+};
+
 const updateRequestInTree = (
   tree: RequestTreeNode[],
   requestId: string,
@@ -287,6 +309,26 @@ const updateRequestInTree = (
     return {
       ...node,
       children: updateRequestInTree(node.children, requestId, updater),
+    };
+  });
+
+const updateFolderInTree = (
+  tree: RequestTreeNode[],
+  folderId: string,
+  updater: (folder: RequestTreeFolderNode) => RequestTreeFolderNode,
+): RequestTreeNode[] =>
+  tree.map((node) => {
+    if (node.type !== "folder") {
+      return node;
+    }
+
+    if (node.id === folderId) {
+      return updater(node);
+    }
+
+    return {
+      ...node,
+      children: updateFolderInTree(node.children, folderId, updater),
     };
   });
 
@@ -627,6 +669,8 @@ export default function CollectionDetailsPage() {
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [editingRequestName, setEditingRequestName] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState("");
   const [requestContextMenu, setRequestContextMenu] = useState<RequestContextMenuState>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dragDropTarget, setDragDropTarget] = useState<DragDropTarget>(null);
@@ -770,8 +814,8 @@ export default function CollectionDetailsPage() {
     [requestTree, activeRequestId],
   );
 
-  const requestContextMenuTarget = useMemo(
-    () => (requestContextMenu ? findRequestById(requestTree, requestContextMenu.requestId) : null),
+  const requestContextMenuTargetNode = useMemo(
+    () => (requestContextMenu ? findNodeById(requestTree, requestContextMenu.nodeId) : null),
     [requestContextMenu, requestTree],
   );
 
@@ -849,6 +893,8 @@ export default function CollectionDetailsPage() {
     setActiveRequestId(newRequestNode.id);
     setEditingRequestId(null);
     setEditingRequestName("");
+    setEditingFolderId(null);
+    setEditingFolderName("");
     setRequestContextMenu(null);
     setResult(null);
     setRequestError(null);
@@ -862,6 +908,8 @@ export default function CollectionDetailsPage() {
     setExpandedFolderIds((current) =>
       current.includes(folderNode.id) ? current : [folderNode.id, ...current],
     );
+    setEditingRequestId(null);
+    setEditingRequestName("");
     setRequestContextMenu(null);
   };
 
@@ -876,6 +924,8 @@ export default function CollectionDetailsPage() {
   const selectRequest = (requestId: string) => {
     setActiveRequestId(requestId);
     setRequestContextMenu(null);
+    setEditingFolderId(null);
+    setEditingFolderName("");
     setResult(null);
     setRequestError(null);
     setScriptError(null);
@@ -886,6 +936,8 @@ export default function CollectionDetailsPage() {
     setRequestContextMenu(null);
     setEditingRequestId(requestId);
     setEditingRequestName(currentName);
+    setEditingFolderId(null);
+    setEditingFolderName("");
   };
 
   const cancelEditingRequestName = () => {
@@ -912,19 +964,67 @@ export default function CollectionDetailsPage() {
     cancelEditingRequestName();
   };
 
-  const deleteRequest = (requestId: string) => {
-    updateCollectionTree((tree) => removeNodeById(tree, requestId).tree);
+  const startEditingFolderName = (folderId: string, currentName: string) => {
+    setRequestContextMenu(null);
+    setEditingFolderId(folderId);
+    setEditingFolderName(currentName);
+    setEditingRequestId(null);
+    setEditingRequestName("");
+  };
 
-    if (editingRequestId === requestId) {
+  const cancelEditingFolderName = () => {
+    setEditingFolderId(null);
+    setEditingFolderName("");
+  };
+
+  const commitEditingFolderName = () => {
+    if (!editingFolderId) {
+      return;
+    }
+
+    const nextName = editingFolderName.trim();
+
+    if (nextName) {
+      updateCollectionTree((tree) =>
+        updateFolderInTree(tree, editingFolderId, (folder) => ({
+          ...folder,
+          name: nextName,
+        })),
+      );
+    }
+
+    cancelEditingFolderName();
+  };
+
+  const deleteNode = (nodeId: string) => {
+    let removedNode: RequestTreeNode | null = null;
+
+    updateCollectionTree((tree) => {
+      const removedResult = removeNodeById(tree, nodeId);
+      removedNode = removedResult.removed;
+      return removedResult.tree;
+    });
+
+    if (!removedNode) {
+      return;
+    }
+
+    if (editingRequestId && hasRequestInTree([removedNode], editingRequestId)) {
       cancelEditingRequestName();
     }
 
-    if (activeRequestId === requestId) {
+    if (editingFolderId && nodeContainsNodeId(removedNode, editingFolderId)) {
+      cancelEditingFolderName();
+    }
+
+    if (activeRequestId && hasRequestInTree([removedNode], activeRequestId)) {
       setResult(null);
       setRequestError(null);
       setScriptError(null);
     }
 
+    const removed = removedNode;
+    setExpandedFolderIds((current) => current.filter((folderId) => !nodeContainsNodeId(removed, folderId)));
     setRequestContextMenu(null);
   };
 
@@ -998,7 +1098,7 @@ export default function CollectionDetailsPage() {
     commitDrop(folderId);
   };
 
-  const openRequestContextMenu = (event: ReactMouseEvent<HTMLDivElement>, requestId: string) => {
+  const openRequestContextMenu = (event: ReactMouseEvent<HTMLDivElement>, nodeId: string) => {
     event.preventDefault();
 
     const x = Math.max(
@@ -1016,9 +1116,14 @@ export default function CollectionDetailsPage() {
       ),
     );
 
-    setActiveRequestId(requestId);
+    const node = findNodeById(requestTree, nodeId);
+
+    if (node?.type === "request") {
+      setActiveRequestId(nodeId);
+    }
+
     setRequestContextMenu({
-      requestId,
+      nodeId,
       x,
       y,
     });
@@ -1237,18 +1342,23 @@ export default function CollectionDetailsPage() {
       if (node.type === "folder") {
         const isExpanded = expandedFolderIds.includes(node.id);
         const isDropTarget = dragDropTarget?.type === "folder" && dragDropTarget.folderId === node.id;
+        const isEditingFolder = editingFolderId === node.id;
 
         return (
           <div key={node.id} className="space-y-1">
-            <div style={rowIndentStyle}>
+            <div
+              style={rowIndentStyle}
+              onContextMenu={(event) => openRequestContextMenu(event, node.id)}
+            >
               <button
                 type="button"
-                draggable
+                draggable={!isEditingFolder}
                 onDragStart={beginDragNode(node.id)}
                 onDragEnd={endDragNode}
                 onDragOver={(event) => dragOverFolder(event, node.id)}
                 onDrop={(event) => dropOnFolder(event, node.id)}
                 onClick={() => toggleFolderExpanded(node.id)}
+                onDoubleClick={() => startEditingFolderName(node.id, node.name)}
                 className={`flex h-10 w-full items-center gap-2 rounded-lg border px-2 text-left text-sm transition ${
                   isDropTarget
                     ? "border-violet-300/60 bg-violet-500/25"
@@ -1263,8 +1373,31 @@ export default function CollectionDetailsPage() {
                 ) : (
                   <Folder className="h-4 w-4 shrink-0 text-violet-200" />
                 )}
-                <span className="truncate font-medium text-zinc-100">{node.name}</span>
+                {!isEditingFolder && <span className="truncate font-medium text-zinc-100">{node.name}</span>}
               </button>
+
+              {isEditingFolder && (
+                <input
+                  autoFocus
+                  value={editingFolderName}
+                  onChange={(event) => setEditingFolderName(event.target.value)}
+                  onBlur={commitEditingFolderName}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitEditingFolderName();
+                      return;
+                    }
+
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelEditingFolderName();
+                    }
+                  }}
+                  className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                  placeholder="Nome da pasta"
+                />
+              )}
             </div>
 
             {isExpanded && node.children.length > 0 && (
@@ -1789,7 +1922,7 @@ export default function CollectionDetailsPage() {
         </div>
       </div>
 
-      {requestContextMenu && requestContextMenuTarget && (
+      {requestContextMenu && requestContextMenuTargetNode && (
         <div
           ref={requestContextMenuRef}
           className="fixed z-50 w-44 overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
@@ -1800,14 +1933,21 @@ export default function CollectionDetailsPage() {
         >
           <button
             type="button"
-            onClick={() => startEditingRequestName(requestContextMenuTarget.id, requestContextMenuTarget.name)}
+            onClick={() =>
+              requestContextMenuTargetNode.type === "request"
+                ? startEditingRequestName(
+                    requestContextMenuTargetNode.request.id,
+                    requestContextMenuTargetNode.request.name,
+                  )
+                : startEditingFolderName(requestContextMenuTargetNode.id, requestContextMenuTargetNode.name)
+            }
             className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
           >
             Renomear
           </button>
           <button
             type="button"
-            onClick={() => deleteRequest(requestContextMenuTarget.id)}
+            onClick={() => deleteNode(requestContextMenuTargetNode.id)}
             className="w-full rounded-md px-3 py-2 text-left text-sm text-rose-200 transition hover:bg-rose-500/20"
           >
             Deletar
