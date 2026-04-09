@@ -2,8 +2,9 @@
 
 import { useMemo } from "react";
 import CodeMirror, { type Extension } from "@uiw/react-codemirror";
-import { autocompletion, completeFromList, snippetCompletion } from "@codemirror/autocomplete";
+import { closeBrackets } from "@codemirror/autocomplete";
 import { json } from "@codemirror/lang-json";
+import { EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, placeholder as placeholderExtension } from "@codemirror/view";
 import { cn } from "@/lib/utils";
@@ -21,44 +22,6 @@ type CodeEditorProps = {
   errorTone?: boolean;
   enableJsonAutocomplete?: boolean;
 };
-
-const jsonCompletions = completeFromList([
-  snippetCompletion('{\n  "$1": $2\n}', {
-    label: "{}",
-    detail: "Objeto JSON",
-    type: "keyword",
-  }),
-  snippetCompletion("[\n  $1\n]", {
-    label: "[]",
-    detail: "Array JSON",
-    type: "keyword",
-  }),
-  snippetCompletion('"$1"', {
-    label: "string",
-    detail: "Texto",
-    type: "keyword",
-  }),
-  snippetCompletion("$1", {
-    label: "number",
-    detail: "Numero",
-    type: "keyword",
-  }),
-  snippetCompletion("true", {
-    label: "true",
-    detail: "Booleano",
-    type: "constant",
-  }),
-  snippetCompletion("false", {
-    label: "false",
-    detail: "Booleano",
-    type: "constant",
-  }),
-  snippetCompletion("null", {
-    label: "null",
-    detail: "Nulo",
-    type: "constant",
-  }),
-]);
 
 const editorTheme = EditorView.theme(
   {
@@ -132,10 +95,14 @@ export const CodeEditor = ({
 
       if (enableJsonAutocomplete && !readOnly) {
         nextExtensions.push(
-          autocompletion({
-            activateOnTyping: true,
-            override: [jsonCompletions],
-          }),
+          EditorState.languageData.of(() => [
+            {
+              closeBrackets: {
+                brackets: ["{", '"'],
+              },
+            },
+          ]),
+          closeBrackets(),
         );
       }
     }
@@ -167,8 +134,8 @@ export const CodeEditor = ({
           highlightActiveLine: true,
           highlightActiveLineGutter: true,
           bracketMatching: true,
-          autocompletion: enableJsonAutocomplete && !readOnly,
-          closeBrackets: !readOnly,
+          autocompletion: false,
+          closeBrackets: false,
         }}
       />
     </div>
