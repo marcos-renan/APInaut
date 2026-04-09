@@ -37,6 +37,62 @@ const MIN_CENTER_PANEL_WIDTH = 420;
 const MIN_RIGHT_PANEL_WIDTH = 280;
 const RESIZER_WIDTH = 1;
 const DELETE_CONFIRM_TIMEOUT_MS = 1500;
+const PANE_LAYOUT_STORAGE_KEY = "apinaut:request-pane-layout:v1";
+const DEFAULT_LEFT_PANEL_WIDTH = 240;
+
+type PaneWidths = {
+  left: number;
+  right: number;
+};
+
+const clampPaneWidths = (containerWidth: number, left: number, right: number): PaneWidths => {
+  const totalHandleWidth = RESIZER_WIDTH * 2;
+  const maxLeft = Math.max(
+    MIN_LEFT_PANEL_WIDTH,
+    containerWidth - MIN_RIGHT_PANEL_WIDTH - MIN_CENTER_PANEL_WIDTH - totalHandleWidth,
+  );
+  const nextLeft = Math.min(Math.max(left, MIN_LEFT_PANEL_WIDTH), maxLeft);
+
+  const maxRight = Math.max(
+    MIN_RIGHT_PANEL_WIDTH,
+    containerWidth - nextLeft - MIN_CENTER_PANEL_WIDTH - totalHandleWidth,
+  );
+  const nextRight = Math.min(Math.max(right, MIN_RIGHT_PANEL_WIDTH), maxRight);
+
+  return {
+    left: nextLeft,
+    right: nextRight,
+  };
+};
+
+const getInitialPaneWidths = (): PaneWidths => {
+  if (typeof window === "undefined") {
+    return {
+      left: DEFAULT_LEFT_PANEL_WIDTH,
+      right: 560,
+    };
+  }
+
+  const fallback = clampPaneWidths(window.innerWidth, DEFAULT_LEFT_PANEL_WIDTH, window.innerWidth * 0.5);
+
+  try {
+    const raw = window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
+
+    if (!raw) {
+      return fallback;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PaneWidths>;
+
+    if (typeof parsed.left !== "number" || typeof parsed.right !== "number") {
+      return fallback;
+    }
+
+    return clampPaneWidths(window.innerWidth, parsed.left, parsed.right);
+  } catch {
+    return fallback;
+  }
+};
 
 const createRow = (): KeyValueRow => ({
   id: crypto.randomUUID(),
@@ -252,6 +308,7 @@ const KeyValueEditor = ({
 export default function CollectionDetailsPage() {
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
+  const initialPaneWidthsRef = useRef<PaneWidths>(getInitialPaneWidths());
   const collections = useSyncExternalStore(
     subscribeCollections,
     getCollectionsSnapshot,
@@ -276,13 +333,27 @@ export default function CollectionDetailsPage() {
   const [result, setResult] = useState<RequestExecutionResult | null>(null);
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showBasicPassword, setShowBasicPassword] = useState(false);
-  const [leftPanelWidth, setLeftPanelWidth] = useState(210);
-  const [rightPanelWidth, setRightPanelWidth] = useState(340);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(initialPaneWidthsRef.current.left);
+  const [rightPanelWidth, setRightPanelWidth] = useState(initialPaneWidthsRef.current.right);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      PANE_LAYOUT_STORAGE_KEY,
+      JSON.stringify({
+        left: leftPanelWidth,
+        right: rightPanelWidth,
+      }),
+    );
+  }, [leftPanelWidth, rightPanelWidth]);
 
   useEffect(() => {
     if (!resizingPane) {
