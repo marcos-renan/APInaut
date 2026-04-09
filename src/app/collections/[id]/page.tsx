@@ -17,6 +17,7 @@ import {
 import {
   ArrowBigLeft,
   AlertTriangle,
+  ChevronsUpDown,
   ChevronRight,
   Eye,
   EyeOff,
@@ -2210,22 +2211,25 @@ export default function CollectionDetailsPage() {
           <h1 className="text-xl font-semibold">{collection.name}</h1>
 
           <div className="ml-auto flex items-center gap-2">
-            <select
-              value={collection.activeEnvironmentId ?? ""}
-              onChange={(event) => setActiveEnvironmentId(event.target.value || null)}
-              className="h-8 rounded-md border border-white/15 bg-[#121025] px-2 text-xs text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-            >
-              <option value="">Sem ambiente</option>
-              {environments.map((environment) => (
-                <option key={environment.id} value={environment.id}>
-                  {environment.name}
-                </option>
-              ))}
-            </select>
+            <div className="relative min-w-[220px]">
+              <select
+                value={collection.activeEnvironmentId ?? ""}
+                onChange={(event) => setActiveEnvironmentId(event.target.value || null)}
+                className="h-9 w-full appearance-none rounded-lg border border-violet-300/45 bg-gradient-to-b from-[#211b38] to-[#141127] pl-3 pr-9 text-xs font-semibold text-violet-100 shadow-[0_8px_20px_rgba(8,6,16,0.45)] outline-none ring-violet-400 transition hover:border-violet-300/65 hover:from-[#2a2250] hover:to-[#181332] focus:ring-2"
+              >
+                <option value="">Sem ambiente</option>
+                {environments.map((environment) => (
+                  <option key={environment.id} value={environment.id}>
+                    {environment.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-violet-200/90" />
+            </div>
             <button
               type="button"
               onClick={openEnvironmentModal}
-              className="h-8 rounded-md border border-violet-300/45 bg-violet-500/15 px-3 text-xs font-medium text-violet-100 transition hover:bg-violet-500/25"
+              className="h-9 rounded-lg border border-violet-300/55 bg-gradient-to-b from-violet-500/40 to-violet-500/20 px-3 text-xs font-semibold text-violet-100 shadow-[0_8px_18px_rgba(71,45,134,0.35)] transition hover:from-violet-400/50 hover:to-violet-500/25"
             >
               Ambientes
             </button>
