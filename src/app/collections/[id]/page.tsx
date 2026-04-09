@@ -13,6 +13,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
+  ArrowBigLeft,
   AlertTriangle,
   ChevronRight,
   Eye,
@@ -73,7 +74,8 @@ const DELETE_CONFIRM_TIMEOUT_MS = 1500;
 const PANE_LAYOUT_STORAGE_KEY = "apinaut:request-pane-layout:v1";
 const DEFAULT_LEFT_PANEL_WIDTH = 240;
 const REQUEST_CONTEXT_MENU_WIDTH = 176;
-const REQUEST_CONTEXT_MENU_HEIGHT = 96;
+const REQUEST_CONTEXT_MENU_HEIGHT_REQUEST = 96;
+const REQUEST_CONTEXT_MENU_HEIGHT_FOLDER = 132;
 const REQUEST_CONTEXT_MENU_VIEWPORT_PADDING = 8;
 const REQUEST_LIST_INDENT = 16;
 const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -901,6 +903,34 @@ export default function CollectionDetailsPage() {
     setScriptError(null);
   };
 
+  const createRequestInFolder = (folderId: string) => {
+    const newRequestNode = createRequestNode("New Request");
+    let inserted = false;
+
+    updateCollectionTree((tree) => {
+      const insertResult = insertIntoFolderById(tree, folderId, newRequestNode);
+      inserted = insertResult.inserted;
+      return insertResult.inserted ? insertResult.tree : tree;
+    });
+
+    if (!inserted) {
+      return;
+    }
+
+    setExpandedFolderIds((current) =>
+      current.includes(folderId) ? current : [...current, folderId],
+    );
+    setActiveRequestId(newRequestNode.id);
+    setEditingRequestId(null);
+    setEditingRequestName("");
+    setEditingFolderId(null);
+    setEditingFolderName("");
+    setRequestContextMenu(null);
+    setResult(null);
+    setRequestError(null);
+    setScriptError(null);
+  };
+
   const createFolder = () => {
     const folderNode = createFolderNode("New Folder");
 
@@ -1100,6 +1130,9 @@ export default function CollectionDetailsPage() {
 
   const openRequestContextMenu = (event: ReactMouseEvent<HTMLDivElement>, nodeId: string) => {
     event.preventDefault();
+    const targetNode = findNodeById(requestTree, nodeId);
+    const menuHeight =
+      targetNode?.type === "folder" ? REQUEST_CONTEXT_MENU_HEIGHT_FOLDER : REQUEST_CONTEXT_MENU_HEIGHT_REQUEST;
 
     const x = Math.max(
       REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
@@ -1112,13 +1145,11 @@ export default function CollectionDetailsPage() {
       REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
       Math.min(
         event.clientY,
-        window.innerHeight - REQUEST_CONTEXT_MENU_HEIGHT - REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
+        window.innerHeight - menuHeight - REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
       ),
     );
 
-    const node = findNodeById(requestTree, nodeId);
-
-    if (node?.type === "request") {
+    if (targetNode?.type === "request") {
       setActiveRequestId(nodeId);
     }
 
@@ -1471,16 +1502,16 @@ export default function CollectionDetailsPage() {
   return (
     <main className="min-h-screen bg-[#100e1a] text-white xl:h-screen xl:overflow-hidden">
       <div className="flex w-full flex-col xl:h-full xl:overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3 xl:shrink-0">
-          <div className="space-y-1">
-            <Link
-              href="/"
-              className="inline-flex rounded-lg border border-white/20 px-3 py-1 text-xs font-medium text-zinc-200 transition hover:bg-white/10"
-            >
-              Voltar para colecoes
-            </Link>
-            <h1 className="text-xl font-semibold">{collection.name}</h1>
-          </div>
+        <div className="flex items-center gap-2 px-4 py-2 xl:shrink-0">
+          <Link
+            href="/"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/55 bg-violet-500/30 text-violet-100 transition hover:bg-violet-500/45"
+            aria-label="Voltar para colecoes"
+            title="Voltar para colecoes"
+          >
+            <ArrowBigLeft className="h-4 w-4" />
+          </Link>
+          <h1 className="text-xl font-semibold">{collection.name}</h1>
         </div>
 
         <div
@@ -1931,6 +1962,15 @@ export default function CollectionDetailsPage() {
             top: requestContextMenu.y,
           }}
         >
+          {requestContextMenuTargetNode.type === "folder" && (
+            <button
+              type="button"
+              onClick={() => createRequestInFolder(requestContextMenuTargetNode.id)}
+              className="w-full rounded-md px-3 py-2 text-left text-sm text-violet-100 transition hover:bg-violet-500/20"
+            >
+              Nova request aqui
+            </button>
+          )}
           <button
             type="button"
             onClick={() =>
