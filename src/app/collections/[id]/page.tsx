@@ -2,8 +2,16 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { AlertTriangle, Eye, EyeOff, Send, Trash2 } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { AlertTriangle, Eye, EyeOff, Plus, Send, Trash2 } from "lucide-react";
 import { CodeEditor } from "@/components/code-editor";
 import {
   ApiRequest,
@@ -32,6 +40,12 @@ type RequestExecutionResult = {
   totalBytes: number;
 };
 
+type RequestContextMenuState = {
+  requestId: string;
+  x: number;
+  y: number;
+} | null;
+
 const MIN_LEFT_PANEL_WIDTH = 170;
 const MIN_CENTER_PANEL_WIDTH = 420;
 const MIN_RIGHT_PANEL_WIDTH = 280;
@@ -39,6 +53,9 @@ const RESIZER_WIDTH = 1;
 const DELETE_CONFIRM_TIMEOUT_MS = 1500;
 const PANE_LAYOUT_STORAGE_KEY = "apinaut:request-pane-layout:v1";
 const DEFAULT_LEFT_PANEL_WIDTH = 240;
+const REQUEST_CONTEXT_MENU_WIDTH = 176;
+const REQUEST_CONTEXT_MENU_HEIGHT = 96;
+const REQUEST_CONTEXT_MENU_VIEWPORT_PADDING = 8;
 const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 const METHOD_STYLE_MAP: Record<
@@ -340,6 +357,7 @@ const KeyValueEditor = ({
 export default function CollectionDetailsPage() {
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
+  const requestContextMenuRef = useRef<HTMLDivElement | null>(null);
   const initialPaneWidthsRef = useRef<PaneWidths>(getInitialPaneWidths());
   const collections = useSyncExternalStore(
     subscribeCollections,
@@ -365,6 +383,9 @@ export default function CollectionDetailsPage() {
   const [result, setResult] = useState<RequestExecutionResult | null>(null);
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showBasicPassword, setShowBasicPassword] = useState(false);
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+  const [editingRequestName, setEditingRequestName] = useState("");
+  const [requestContextMenu, setRequestContextMenu] = useState<RequestContextMenuState>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useState(initialPaneWidthsRef.current.left);
   const [rightPanelWidth, setRightPanelWidth] = useState(initialPaneWidthsRef.current.right);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
@@ -386,6 +407,44 @@ export default function CollectionDetailsPage() {
       }),
     );
   }, [leftPanelWidth, rightPanelWidth]);
+
+  useEffect(() => {
+    if (!requestContextMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        requestContextMenuRef.current &&
+        event.target instanceof Node &&
+        requestContextMenuRef.current.contains(event.target)
+      ) {
+        return;
+      }
+
+      setRequestContextMenu(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setRequestContextMenu(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setRequestContextMenu(null);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("scroll", handleScroll, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [requestContextMenu]);
 
   useEffect(() => {
     if (!resizingPane) {
@@ -465,6 +524,14 @@ export default function CollectionDetailsPage() {
     [collection, activeRequestId],
   );
 
+  const requestContextMenuTarget = useMemo(
+    () =>
+      requestContextMenu && collection
+        ? collection.requests.find((request) => request.id === requestContextMenu.requestId) ?? null
+        : null,
+    [collection, requestContextMenu],
+  );
+
   const updateCollectionRequests = (updater: (requests: ApiRequest[]) => ApiRequest[]) => {
     if (!collectionId) {
       return;
@@ -542,9 +609,90 @@ export default function CollectionDetailsPage() {
 
     updateCollectionRequests((requests) => [newRequest, ...requests]);
     setActiveRequestId(newRequest.id);
+    setEditingRequestId(null);
+    setEditingRequestName("");
+    setRequestContextMenu(null);
     setResult(null);
     setRequestError(null);
     setScriptError(null);
+  };
+
+  const selectRequest = (requestId: string) => {
+    setActiveRequestId(requestId);
+    setRequestContextMenu(null);
+    setResult(null);
+    setRequestError(null);
+    setScriptError(null);
+  };
+
+  const startEditingRequestName = (requestId: string, currentName: string) => {
+    setActiveRequestId(requestId);
+    setRequestContextMenu(null);
+    setEditingRequestId(requestId);
+    setEditingRequestName(currentName);
+  };
+
+  const cancelEditingRequestName = () => {
+    setEditingRequestId(null);
+    setEditingRequestName("");
+  };
+
+  const commitEditingRequestName = () => {
+    if (!editingRequestId) {
+      return;
+    }
+
+    const nextName = editingRequestName.trim();
+
+    if (nextName) {
+      updateCollectionRequests((requests) =>
+        requests.map((request) => (request.id === editingRequestId ? { ...request, name: nextName } : request)),
+      );
+    }
+
+    cancelEditingRequestName();
+  };
+
+  const deleteRequest = (requestId: string) => {
+    updateCollectionRequests((requests) => requests.filter((request) => request.id !== requestId));
+
+    if (editingRequestId === requestId) {
+      cancelEditingRequestName();
+    }
+
+    if (activeRequestId === requestId) {
+      setResult(null);
+      setRequestError(null);
+      setScriptError(null);
+    }
+
+    setRequestContextMenu(null);
+  };
+
+  const openRequestContextMenu = (event: ReactMouseEvent<HTMLDivElement>, requestId: string) => {
+    event.preventDefault();
+
+    const x = Math.max(
+      REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
+      Math.min(
+        event.clientX,
+        window.innerWidth - REQUEST_CONTEXT_MENU_WIDTH - REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
+      ),
+    );
+    const y = Math.max(
+      REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
+      Math.min(
+        event.clientY,
+        window.innerHeight - REQUEST_CONTEXT_MENU_HEIGHT - REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
+      ),
+    );
+
+    setActiveRequestId(requestId);
+    setRequestContextMenu({
+      requestId,
+      x,
+      y,
+    });
   };
 
   const prettyResponseBody = useMemo(() => {
@@ -754,7 +902,7 @@ export default function CollectionDetailsPage() {
   return (
     <main className="min-h-screen bg-[#100e1a] text-white xl:h-screen xl:overflow-hidden">
       <div className="flex w-full flex-col xl:h-full xl:overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 xl:shrink-0">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 xl:shrink-0">
           <div className="space-y-1">
             <Link
               href="/"
@@ -764,14 +912,6 @@ export default function CollectionDetailsPage() {
             </Link>
             <h1 className="text-xl font-semibold">{collection.name}</h1>
           </div>
-
-          <button
-            type="button"
-            onClick={createRequest}
-            className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-400"
-          >
-            Nova requisicao
-          </button>
         </div>
 
         <div
@@ -780,7 +920,18 @@ export default function CollectionDetailsPage() {
           style={desktopGridStyle}
         >
           <aside className="border-y border-white/10 bg-[#1a1728] p-3 xl:min-h-0 xl:overflow-auto">
-            <h2 className="mb-3 text-sm font-medium text-zinc-300">Requisicoes</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-zinc-300">Requisicoes</h2>
+              <button
+                type="button"
+                onClick={createRequest}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
+                aria-label="Criar nova requisicao"
+                title="Criar nova requisicao"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
             <div className="space-y-2">
               {collection.requests.length === 0 && (
                 <p className="rounded-lg border border-dashed border-white/15 p-3 text-xs text-zinc-400">
@@ -788,34 +939,62 @@ export default function CollectionDetailsPage() {
                 </p>
               )}
 
-              {collection.requests.map((request) => (
-                <button
-                  key={request.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveRequestId(request.id);
-                    setResult(null);
-                    setRequestError(null);
-                    setScriptError(null);
-                  }}
-                  className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-                    activeRequestId === request.id
-                      ? "border-violet-300/50 bg-violet-500/20"
-                      : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
-                  }`}
-                >
-                  <p>
-                    <span
-                      className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
-                        METHOD_STYLE_MAP[request.method].badge
-                      }`}
+              {collection.requests.map((request) => {
+                const isEditing = editingRequestId === request.id;
+
+                return (
+                  <div
+                    key={request.id}
+                    onContextMenu={(event) => openRequestContextMenu(event, request.id)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      activeRequestId === request.id
+                        ? "border-violet-300/50 bg-violet-500/20"
+                        : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => selectRequest(request.id)}
+                      onDoubleClick={() => startEditingRequestName(request.id, request.name)}
+                      className="w-full text-left"
                     >
-                      {request.method}
-                    </span>
-                  </p>
-                  <p className="truncate font-medium text-zinc-100">{request.name}</p>
-                </button>
-              ))}
+                      <p>
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
+                            METHOD_STYLE_MAP[request.method].badge
+                          }`}
+                        >
+                          {request.method}
+                        </span>
+                      </p>
+                      {!isEditing && <p className="truncate font-medium text-zinc-100">{request.name}</p>}
+                    </button>
+
+                    {isEditing && (
+                      <input
+                        autoFocus
+                        value={editingRequestName}
+                        onChange={(event) => setEditingRequestName(event.target.value)}
+                        onBlur={commitEditingRequestName}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            commitEditingRequestName();
+                            return;
+                          }
+
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelEditingRequestName();
+                          }
+                        }}
+                        className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                        placeholder="Nome da requisicao"
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </aside>
 
@@ -834,19 +1013,7 @@ export default function CollectionDetailsPage() {
           <section className="border-y border-white/10 bg-[#1a1728] p-5 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
             {activeRequest ? (
               <>
-                <div className="mb-3 grid gap-2 xl:shrink-0">
-                  <input
-                    value={activeRequest.name}
-                    onChange={(event) =>
-                      updateActiveRequest((request) => ({
-                        ...request,
-                        name: event.target.value,
-                      }))
-                    }
-                    className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm font-medium outline-none ring-violet-400 transition focus:ring-2"
-                    placeholder="Nome da requisicao"
-                  />
-
+                <div className="mb-3 xl:shrink-0">
                   <div className="grid gap-2 md:grid-cols-[110px_minmax(0,1fr)_40px]">
                     <select
                       value={activeRequest.method}
@@ -1223,6 +1390,32 @@ export default function CollectionDetailsPage() {
           </section>
         </div>
       </div>
+
+      {requestContextMenu && requestContextMenuTarget && (
+        <div
+          ref={requestContextMenuRef}
+          className="fixed z-50 w-44 overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
+          style={{
+            left: requestContextMenu.x,
+            top: requestContextMenu.y,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => startEditingRequestName(requestContextMenuTarget.id, requestContextMenuTarget.name)}
+            className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
+          >
+            Renomear
+          </button>
+          <button
+            type="button"
+            onClick={() => deleteRequest(requestContextMenuTarget.id)}
+            className="w-full rounded-md px-3 py-2 text-left text-sm text-rose-200 transition hover:bg-rose-500/20"
+          >
+            Deletar
+          </button>
+        </div>
+      )}
     </main>
   );
 }
