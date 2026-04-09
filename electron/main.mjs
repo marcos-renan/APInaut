@@ -14,7 +14,7 @@ const createMainWindow = () => {
     },
   });
 
-  const startUrl = process.env.ELECTRON_START_URL ?? "http://localhost:3000";
+  const startUrl = process.env.ELECTRON_START_URL ?? "http://localhost:3210";
   mainWindow.loadURL(startUrl);
 };
 
