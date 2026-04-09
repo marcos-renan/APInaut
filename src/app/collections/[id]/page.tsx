@@ -95,7 +95,7 @@ const PANE_LAYOUT_STORAGE_KEY = "apinaut:request-pane-layout:v1";
 const DEFAULT_LEFT_PANEL_WIDTH = 240;
 const REQUEST_CONTEXT_MENU_WIDTH = 176;
 const REQUEST_CONTEXT_MENU_HEIGHT_REQUEST = 96;
-const REQUEST_CONTEXT_MENU_HEIGHT_FOLDER = 132;
+const REQUEST_CONTEXT_MENU_HEIGHT_FOLDER = 168;
 const REQUEST_CONTEXT_MENU_VIEWPORT_PADDING = 8;
 const REQUEST_LIST_INDENT = 16;
 const TEMPLATE_SUGGESTION_MENU_WIDTH = 320;
@@ -106,31 +106,41 @@ const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "
 
 const METHOD_STYLE_MAP: Record<
   ApiRequest["method"],
-  { select: string; badge: string; optionColor: string }
+  { select: string; badge: string; listActive: string; listInactive: string; optionColor: string }
 > = {
   GET: {
     select: "border-emerald-400/55 bg-emerald-500/15 text-emerald-200",
     badge: "border-emerald-400/45 bg-emerald-500/15 text-emerald-200",
+    listActive: "border-emerald-300/50 bg-emerald-500/20",
+    listInactive: "border-emerald-500/20 bg-emerald-500/6 hover:bg-emerald-500/12",
     optionColor: "#86efac",
   },
   POST: {
     select: "border-yellow-400/55 bg-yellow-500/15 text-yellow-200",
     badge: "border-yellow-400/45 bg-yellow-500/15 text-yellow-200",
+    listActive: "border-yellow-300/50 bg-yellow-500/20",
+    listInactive: "border-yellow-500/20 bg-yellow-500/6 hover:bg-yellow-500/12",
     optionColor: "#fde68a",
   },
   PUT: {
     select: "border-orange-400/55 bg-orange-500/15 text-orange-200",
     badge: "border-orange-400/45 bg-orange-500/15 text-orange-200",
+    listActive: "border-orange-300/50 bg-orange-500/20",
+    listInactive: "border-orange-500/20 bg-orange-500/6 hover:bg-orange-500/12",
     optionColor: "#fdba74",
   },
   PATCH: {
     select: "border-violet-400/55 bg-violet-500/15 text-violet-200",
     badge: "border-violet-400/45 bg-violet-500/15 text-violet-200",
+    listActive: "border-violet-300/50 bg-violet-500/20",
+    listInactive: "border-violet-500/20 bg-violet-500/6 hover:bg-violet-500/12",
     optionColor: "#c4b5fd",
   },
   DELETE: {
     select: "border-rose-400/55 bg-rose-500/15 text-rose-200",
     badge: "border-rose-400/45 bg-rose-500/15 text-rose-200",
+    listActive: "border-rose-300/50 bg-rose-500/20",
+    listInactive: "border-rose-500/20 bg-rose-500/6 hover:bg-rose-500/12",
     optionColor: "#fda4af",
   },
 };
@@ -1442,6 +1452,31 @@ export default function CollectionDetailsPage() {
     setRequestContextMenu(null);
   };
 
+  const createFolderInFolder = (folderId: string) => {
+    const folderNode = createFolderNode("New Folder");
+    let inserted = false;
+
+    updateCollectionTree((tree) => {
+      const insertResult = insertIntoFolderById(tree, folderId, folderNode);
+      inserted = insertResult.inserted;
+      return insertResult.inserted ? insertResult.tree : tree;
+    });
+
+    if (!inserted) {
+      return;
+    }
+
+    setExpandedFolderIds((current) => {
+      const next = current.includes(folderId) ? current : [...current, folderId];
+      return next.includes(folderNode.id) ? next : [...next, folderNode.id];
+    });
+    setEditingRequestId(null);
+    setEditingRequestName("");
+    setEditingFolderId(null);
+    setEditingFolderName("");
+    setRequestContextMenu(null);
+  };
+
   const openEnvironmentModal = () => {
     setEditingEnvironmentId(activeEnvironment?.id ?? environments[0]?.id ?? null);
     setIsEnvironmentModalOpen(true);
@@ -2218,8 +2253,8 @@ export default function CollectionDetailsPage() {
             onContextMenu={(event) => openRequestContextMenu(event, request.id)}
             className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
               activeRequestId === request.id
-                ? "border-violet-300/50 bg-violet-500/20"
-                : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
+                ? METHOD_STYLE_MAP[request.method].listActive
+                : METHOD_STYLE_MAP[request.method].listInactive
             }`}
           >
             <button
@@ -2231,7 +2266,7 @@ export default function CollectionDetailsPage() {
               onDoubleClick={() => startEditingRequestName(request.id, request.name)}
               className="w-full text-left"
             >
-              <p>
+              <div className="flex min-w-0 items-center gap-2">
                 <span
                   className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
                     METHOD_STYLE_MAP[request.method].badge
@@ -2239,8 +2274,10 @@ export default function CollectionDetailsPage() {
                 >
                   {request.method}
                 </span>
-              </p>
-              {!isEditing && <p className="truncate font-medium text-zinc-100">{request.name}</p>}
+                {!isEditing && (
+                  <span className="min-w-0 flex-1 truncate font-medium text-zinc-100">{request.name}</span>
+                )}
+              </div>
             </button>
 
             {isEditing && (
@@ -2314,8 +2351,8 @@ export default function CollectionDetailsPage() {
           className="grid min-h-0 flex-1 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
           style={desktopGridStyle}
         >
-          <aside className="min-h-0 overflow-auto border-y border-white/10 bg-[#1a1728] p-3">
-            <div className="mb-3 flex items-center justify-between">
+          <aside className="min-h-0 overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3">
+            <div className="mb-3 flex items-center justify-between px-3">
               <h2 className="text-sm font-medium text-zinc-300">Requisicoes</h2>
               <div className="flex items-center gap-1">
                 <button
@@ -2337,6 +2374,17 @@ export default function CollectionDetailsPage() {
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
+            </div>
+            <div
+              className={`mx-3 mb-2 flex h-9 items-center justify-center rounded-lg border border-dashed text-xs font-medium transition ${
+                dragDropTarget?.type === "root"
+                  ? "border-violet-300/70 bg-violet-500/20 text-violet-100"
+                  : "border-white/20 bg-[#121025] text-zinc-400"
+              }`}
+              onDragOver={dragOverRoot}
+              onDrop={dropOnRoot}
+            >
+              Soltar na raiz
             </div>
             <div
               className={`space-y-2 rounded-lg ${
@@ -2367,10 +2415,10 @@ export default function CollectionDetailsPage() {
             />
           </div>
 
-          <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] p-5">
+          <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] px-0 py-3">
             {activeRequest ? (
               <>
-                <div className="mb-3 shrink-0">
+                <div className="mb-3 shrink-0 px-3">
                   <div className="grid gap-2 md:grid-cols-[110px_minmax(0,1fr)_40px]">
                     <select
                       value={activeRequest.method}
@@ -2432,7 +2480,7 @@ export default function CollectionDetailsPage() {
                   </div>
                 </div>
 
-                <div className="mb-3 flex shrink-0 flex-wrap gap-2 border-b border-white/10 pb-3">
+                <div className="mb-3 flex shrink-0 flex-wrap gap-2 border-b border-white/10 px-3 pb-3">
                   {[
                     { id: "params", label: "Params" },
                     { id: "body", label: "Body" },
@@ -2453,7 +2501,7 @@ export default function CollectionDetailsPage() {
                   ))}
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-auto">
+                <div className="min-h-0 flex-1 overflow-auto px-3">
                   {requestTab === "params" && (
                     <div className="h-full overflow-auto pr-1">
                       <div className="mb-3 rounded-lg border border-white/10 bg-[#121025] p-3">
@@ -2742,12 +2790,12 @@ export default function CollectionDetailsPage() {
             />
           </div>
 
-          <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] p-5">
-            <div className="mb-3 grid shrink-0 grid-cols-3 gap-2">
-              <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
-                <p className="text-[11px] uppercase tracking-wide text-zinc-400">Status</p>
+          <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] px-0 py-3">
+            <div className="mb-2 grid shrink-0 grid-cols-3 gap-1 px-3">
+              <div className="rounded-md border border-white/10 bg-[#121025] px-2 py-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-zinc-400">Status</p>
                 <p
-                  className={`mt-1 text-sm font-semibold ${
+                  className={`mt-0.5 text-xs font-semibold ${
                     requestError
                       ? "text-rose-300"
                       : result
@@ -2760,17 +2808,17 @@ export default function CollectionDetailsPage() {
                   {statusDisplay}
                 </p>
               </div>
-              <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
-                <p className="text-[11px] uppercase tracking-wide text-zinc-400">Tempo</p>
-                <p className="mt-1 text-sm font-semibold text-zinc-100">{secondsDisplay}</p>
+              <div className="rounded-md border border-white/10 bg-[#121025] px-2 py-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-zinc-400">Tempo</p>
+                <p className="mt-0.5 text-xs font-semibold text-zinc-100">{secondsDisplay}</p>
               </div>
-              <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
-                <p className="text-[11px] uppercase tracking-wide text-zinc-400">Transferido</p>
-                <p className="mt-1 text-sm font-semibold text-zinc-100">{transferDisplay}</p>
+              <div className="rounded-md border border-white/10 bg-[#121025] px-2 py-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-zinc-400">Transferido</p>
+                <p className="mt-0.5 text-xs font-semibold text-zinc-100">{transferDisplay}</p>
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-white/10 bg-[#121025]">
+            <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-white/10 bg-[#121025] px-0">
               <div className="flex shrink-0 items-center gap-1 border-b border-white/10 p-1">
                 {[ 
                   { id: "body", label: "Body" },
@@ -2863,13 +2911,22 @@ export default function CollectionDetailsPage() {
           }}
         >
           {requestContextMenuTargetNode.type === "folder" && (
-            <button
-              type="button"
-              onClick={() => createRequestInFolder(requestContextMenuTargetNode.id)}
-              className="w-full rounded-md px-3 py-2 text-left text-sm text-violet-100 transition hover:bg-violet-500/20"
-            >
-              Nova request aqui
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => createRequestInFolder(requestContextMenuTargetNode.id)}
+                className="w-full rounded-md px-3 py-2 text-left text-sm text-violet-100 transition hover:bg-violet-500/20"
+              >
+                Nova request aqui
+              </button>
+              <button
+                type="button"
+                onClick={() => createFolderInFolder(requestContextMenuTargetNode.id)}
+                className="w-full rounded-md px-3 py-2 text-left text-sm text-violet-100 transition hover:bg-violet-500/20"
+              >
+                Nova pasta aqui
+              </button>
+            </>
           )}
           <button
             type="button"
