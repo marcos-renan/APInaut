@@ -4,8 +4,8 @@ const createMainWindow = () => {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    minWidth: 1024,
-    minHeight: 680,
+    minWidth: 760,
+    minHeight: 520,
     backgroundColor: "#09090b",
     webPreferences: {
       contextIsolation: true,

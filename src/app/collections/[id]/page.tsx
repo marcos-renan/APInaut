@@ -91,10 +91,12 @@ type TemplateSuggestionState = {
   fieldElement: HTMLInputElement | HTMLTextAreaElement;
 } | null;
 
-const MIN_LEFT_PANEL_WIDTH = 170;
-const MIN_CENTER_PANEL_WIDTH = 420;
-const MIN_RIGHT_PANEL_WIDTH = 280;
+const MIN_LEFT_PANEL_WIDTH = 140;
+const MIN_CENTER_PANEL_WIDTH = 300;
+const MIN_RIGHT_PANEL_WIDTH = 220;
 const RESIZER_WIDTH = 1;
+const MIN_LAYOUT_WIDTH =
+  MIN_LEFT_PANEL_WIDTH + MIN_CENTER_PANEL_WIDTH + MIN_RIGHT_PANEL_WIDTH + RESIZER_WIDTH * 2;
 const DELETE_CONFIRM_TIMEOUT_MS = 1500;
 const PANE_LAYOUT_STORAGE_KEY = "apinaut:request-pane-layout:v1";
 const DEFAULT_LEFT_PANEL_WIDTH = 240;
@@ -981,6 +983,34 @@ export default function CollectionDetailsPage() {
       document.body.style.cursor = previousCursor;
     };
   }, [leftPanelWidth, resizingPane, rightPanelWidth]);
+
+  useEffect(() => {
+    const syncPaneWidthsWithContainer = () => {
+      const layout = layoutRef.current;
+
+      if (!layout) {
+        return;
+      }
+
+      const rect = layout.getBoundingClientRect();
+      const clamped = clampPaneWidths(rect.width, leftPanelWidth, rightPanelWidth);
+
+      if (clamped.left !== leftPanelWidth) {
+        setLeftPanelWidth(clamped.left);
+      }
+
+      if (clamped.right !== rightPanelWidth) {
+        setRightPanelWidth(clamped.right);
+      }
+    };
+
+    syncPaneWidthsWithContainer();
+    window.addEventListener("resize", syncPaneWidthsWithContainer);
+
+    return () => {
+      window.removeEventListener("resize", syncPaneWidthsWithContainer);
+    };
+  }, [leftPanelWidth, rightPanelWidth]);
 
   const requestTree = useMemo(() => collection?.requestTree ?? [], [collection]);
   const environments = useMemo(() => collection?.environments ?? [], [collection]);
@@ -2504,6 +2534,7 @@ export default function CollectionDetailsPage() {
   const desktopGridStyle = {
     "--left-pane-width": `${leftPanelWidth}px`,
     "--right-pane-width": `${rightPanelWidth}px`,
+    minWidth: `${MIN_LAYOUT_WIDTH}px`,
   } as CSSProperties;
 
   const renderRequestTreeNodes = (nodes: RequestTreeNode[], depth = 0) =>
@@ -2696,11 +2727,12 @@ export default function CollectionDetailsPage() {
           </div>
         </div>
 
-        <div
-          ref={layoutRef}
-          className="grid min-h-0 flex-1 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
-          style={desktopGridStyle}
-        >
+        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+          <div
+            ref={layoutRef}
+            className="grid h-full min-h-0 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
+            style={desktopGridStyle}
+          >
           <aside className="min-h-0 overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3">
             <div className="mb-3 flex items-center justify-between px-3">
               <h2 className="text-sm font-medium text-zinc-300">Requisicoes</h2>
@@ -3255,6 +3287,7 @@ export default function CollectionDetailsPage() {
             </div>
 
           </section>
+          </div>
         </div>
       </div>
 
