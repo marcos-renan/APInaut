@@ -17,8 +17,8 @@ import {
 import {
   ArrowBigLeft,
   AlertTriangle,
-  ChevronsUpDown,
   ChevronRight,
+  Copy,
   Eye,
   EyeOff,
   Folder,
@@ -47,6 +47,7 @@ import {
 type RequestTab = "params" | "body" | "auth" | "headers" | "script";
 type ScriptTab = "pre-request" | "after-response";
 type ResponseTab = "body" | "headers" | "cookies";
+type ResponseBodyView = "code" | "web";
 
 type RequestExecutionResult = {
   status: number;
@@ -97,8 +98,8 @@ const REQUEST_CONTEXT_MENU_HEIGHT_REQUEST = 96;
 const REQUEST_CONTEXT_MENU_HEIGHT_FOLDER = 132;
 const REQUEST_CONTEXT_MENU_VIEWPORT_PADDING = 8;
 const REQUEST_LIST_INDENT = 16;
-const TEMPLATE_SUGGESTION_MENU_WIDTH = 240;
-const TEMPLATE_SUGGESTION_MENU_HEIGHT = 220;
+const TEMPLATE_SUGGESTION_MENU_WIDTH = 320;
+const TEMPLATE_SUGGESTION_MENU_HEIGHT = 300;
 const TEMPLATE_VARIABLE_TRIGGER_REGEX = /\{\{([A-Za-z0-9_.-]*)$/;
 const TEMPLATE_VARIABLE_LOOKUP_REGEX = /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
 const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -580,6 +581,14 @@ const runUserScript = (scriptCode: string, bindings: Record<string, unknown>) =>
   execute(...bindingValues);
 };
 
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
 const KeyValueEditor = ({
   rows,
   onChange,
@@ -764,6 +773,7 @@ export default function CollectionDetailsPage() {
   const [requestTab, setRequestTab] = useState<RequestTab>("params");
   const [scriptTab, setScriptTab] = useState<ScriptTab>("pre-request");
   const [responseTab, setResponseTab] = useState<ResponseTab>("body");
+  const [responseBodyView, setResponseBodyView] = useState<ResponseBodyView>("code");
   const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [scriptError, setScriptError] = useState<string | null>(null);
@@ -785,6 +795,7 @@ export default function CollectionDetailsPage() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(initialPaneWidthsRef.current.left);
   const [rightPanelWidth, setRightPanelWidth] = useState(initialPaneWidthsRef.current.right);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
+  const [urlPreviewCopied, setUrlPreviewCopied] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -1082,6 +1093,37 @@ export default function CollectionDetailsPage() {
     [requestTree, activeRequestId],
   );
 
+  const urlPreview = useMemo(() => {
+    if (!activeRequest) {
+      return {
+        value: "",
+        error: "",
+      };
+    }
+
+    const resolvedRequest = resolveRequestWithEnvironment(activeRequest, activeTemplateVariables);
+    const baseUrl = resolvedRequest.url.trim();
+
+    if (!baseUrl) {
+      return {
+        value: "",
+        error: "Informe uma URL para visualizar o preview.",
+      };
+    }
+
+    try {
+      return {
+        value: buildUrlWithParams(baseUrl, resolvedRequest.params),
+        error: "",
+      };
+    } catch {
+      return {
+        value: "",
+        error: "URL invalida para preview. Verifique URL e variaveis do ambiente.",
+      };
+    }
+  }, [activeRequest, activeTemplateVariables]);
+
   const requestContextMenuTargetNode = useMemo(
     () => (requestContextMenu ? findNodeById(requestTree, requestContextMenu.nodeId) : null),
     [requestContextMenu, requestTree],
@@ -1263,19 +1305,19 @@ export default function CollectionDetailsPage() {
   };
 
   const applyTemplateSuggestion = (option: string) => {
-    setTemplateSuggestion((current) => {
-      if (!current) {
-        return null;
-      }
+    if (!templateSuggestion) {
+      return;
+    }
 
-      const replacement = `{{${option}}}`;
-      const nextValue = `${current.fieldValue.slice(0, current.replaceFrom)}${replacement}${current.fieldValue.slice(
-        current.replaceTo,
-      )}`;
-      const nextCaret = current.replaceFrom + replacement.length;
-      current.apply(nextValue, nextCaret);
-      return null;
-    });
+    const current = templateSuggestion;
+    const replacement = `{{${option}}}`;
+    const nextValue = `${current.fieldValue.slice(0, current.replaceFrom)}${replacement}${current.fieldValue.slice(
+      current.replaceTo,
+    )}`;
+    const nextCaret = current.replaceFrom + replacement.length;
+
+    setTemplateSuggestion(null);
+    current.apply(nextValue, nextCaret);
   };
 
   const handleTemplateTextFieldChange = (
@@ -1492,6 +1534,7 @@ export default function CollectionDetailsPage() {
     setResult(null);
     setRequestError(null);
     setScriptError(null);
+    setUrlPreviewCopied(false);
   };
 
   const startEditingRequestName = (requestId: string, currentName: string) => {
@@ -1736,6 +1779,23 @@ export default function CollectionDetailsPage() {
       ? [errors.join("\n\n"), prettyResponseBody].filter(Boolean).join("\n\n")
       : prettyResponseBody;
   }, [prettyResponseBody, requestError, responseTab, result, scriptError]);
+
+  const responseWebPreviewDocument = useMemo(() => {
+    if (!result) {
+      return "";
+    }
+
+    const contentType = (result.headers["content-type"] ?? "").toLowerCase();
+    const rawBody = result.body ?? "";
+    const trimmedBody = rawBody.trim();
+    const looksLikeHtml = /^<!doctype html/i.test(trimmedBody) || /^<html[\s>]/i.test(trimmedBody);
+
+    if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml") || looksLikeHtml) {
+      return rawBody;
+    }
+
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Preview</title></head><body style="margin:0;padding:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:#0f0d18;color:#e5e7eb;"><pre style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(rawBody)}</pre></body></html>`;
+  }, [result]);
 
   const hasResponseError = Boolean(requestError || scriptError);
   const responseLanguage = useMemo<"json" | "text">(() => {
@@ -2027,6 +2087,20 @@ export default function CollectionDetailsPage() {
     }
   };
 
+  const copyUrlPreview = async () => {
+    if (!urlPreview.value) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(urlPreview.value);
+      setUrlPreviewCopied(true);
+      window.setTimeout(() => setUrlPreviewCopied(false), 1000);
+    } catch {
+      setUrlPreviewCopied(false);
+    }
+  };
+
   if (!isMounted) {
     return (
       <main className="min-h-screen bg-[#100e1a] px-6 py-10 text-white">
@@ -2197,9 +2271,9 @@ export default function CollectionDetailsPage() {
     });
 
   return (
-    <main className="min-h-screen bg-[#100e1a] text-white xl:h-screen xl:overflow-hidden">
-      <div className="flex w-full flex-col xl:h-full xl:overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-2 xl:shrink-0">
+    <main className="h-screen min-h-screen overflow-hidden bg-[#100e1a] text-white">
+      <div className="flex h-full w-full flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center gap-2 px-4 py-2">
           <Link
             href="/"
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/55 bg-violet-500/30 text-violet-100 transition hover:bg-violet-500/45"
@@ -2211,11 +2285,11 @@ export default function CollectionDetailsPage() {
           <h1 className="text-xl font-semibold">{collection.name}</h1>
 
           <div className="ml-auto flex items-center gap-2">
-            <div className="relative min-w-[220px]">
+            <div className="min-w-[220px]">
               <select
                 value={collection.activeEnvironmentId ?? ""}
                 onChange={(event) => setActiveEnvironmentId(event.target.value || null)}
-                className="h-9 w-full appearance-none rounded-lg border border-violet-300/45 bg-gradient-to-b from-[#211b38] to-[#141127] pl-3 pr-9 text-xs font-semibold text-violet-100 shadow-[0_8px_20px_rgba(8,6,16,0.45)] outline-none ring-violet-400 transition hover:border-violet-300/65 hover:from-[#2a2250] hover:to-[#181332] focus:ring-2"
+                className="h-8 w-full rounded-md border border-white/15 bg-[#121025] px-2 text-xs text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
               >
                 <option value="">Sem ambiente</option>
                 {environments.map((environment) => (
@@ -2224,12 +2298,11 @@ export default function CollectionDetailsPage() {
                   </option>
                 ))}
               </select>
-              <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-violet-200/90" />
             </div>
             <button
               type="button"
               onClick={openEnvironmentModal}
-              className="h-9 rounded-lg border border-violet-300/55 bg-gradient-to-b from-violet-500/40 to-violet-500/20 px-3 text-xs font-semibold text-violet-100 shadow-[0_8px_18px_rgba(71,45,134,0.35)] transition hover:from-violet-400/50 hover:to-violet-500/25"
+              className="h-8 rounded-md border border-violet-300/45 bg-violet-500/15 px-3 text-xs font-medium text-violet-100 transition hover:bg-violet-500/25"
             >
               Ambientes
             </button>
@@ -2238,10 +2311,10 @@ export default function CollectionDetailsPage() {
 
         <div
           ref={layoutRef}
-          className="grid gap-0 xl:min-h-0 xl:flex-1 xl:[grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
+          className="grid min-h-0 flex-1 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
           style={desktopGridStyle}
         >
-          <aside className="border-y border-white/10 bg-[#1a1728] p-3 xl:min-h-0 xl:overflow-auto">
+          <aside className="min-h-0 overflow-auto border-y border-white/10 bg-[#1a1728] p-3">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-zinc-300">Requisicoes</h2>
               <div className="flex items-center gap-1">
@@ -2282,7 +2355,7 @@ export default function CollectionDetailsPage() {
             </div>
           </aside>
 
-          <div className="relative hidden bg-white/10 xl:block">
+          <div className="relative bg-white/10">
             <button
               type="button"
               onMouseDown={(event) => {
@@ -2294,10 +2367,10 @@ export default function CollectionDetailsPage() {
             />
           </div>
 
-          <section className="border-y border-white/10 bg-[#1a1728] p-5 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
+          <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] p-5">
             {activeRequest ? (
               <>
-                <div className="mb-3 xl:shrink-0">
+                <div className="mb-3 shrink-0">
                   <div className="grid gap-2 md:grid-cols-[110px_minmax(0,1fr)_40px]">
                     <select
                       value={activeRequest.method}
@@ -2326,25 +2399,23 @@ export default function CollectionDetailsPage() {
                       ))}
                     </select>
 
-                    <input
+                    <CodeEditor
                       value={activeRequest.url}
-                      onChange={(event) =>
-                        handleTemplateTextFieldChange(event, (nextValue) =>
-                          updateActiveRequest((request) => ({
-                            ...request,
-                            url: nextValue,
-                          })),
-                        )
+                      onChange={(nextUrl) =>
+                        updateActiveRequest((request) => ({
+                          ...request,
+                          url: nextUrl.replace(/\r?\n/g, ""),
+                        }))
                       }
-                      onKeyDown={(event) =>
-                        handleTemplateTextFieldKeyDown(event, activeRequest.url, (nextValue) =>
-                          updateActiveRequest((request) => ({
-                            ...request,
-                            url: nextValue,
-                          })),
-                        )
-                      }
-                      className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                      language="text"
+                      enableTemplateAutocomplete
+                      templateVariables={templateVariableOptions}
+                      lineNumbers={false}
+                      compact
+                      singleLine
+                      allowOverflowVisible
+                      height={40}
+                      className="h-10 min-w-0"
                       placeholder="https://api.exemplo.com/recurso"
                     />
 
@@ -2361,7 +2432,7 @@ export default function CollectionDetailsPage() {
                   </div>
                 </div>
 
-                <div className="mb-3 flex flex-wrap gap-2 border-b border-white/10 pb-3 xl:shrink-0">
+                <div className="mb-3 flex shrink-0 flex-wrap gap-2 border-b border-white/10 pb-3">
                   {[
                     { id: "params", label: "Params" },
                     { id: "body", label: "Body" },
@@ -2382,9 +2453,34 @@ export default function CollectionDetailsPage() {
                   ))}
                 </div>
 
-                <div className="min-h-[360px] xl:min-h-0 xl:flex-1 xl:overflow-auto">
+                <div className="min-h-0 flex-1 overflow-auto">
                   {requestTab === "params" && (
                     <div className="h-full overflow-auto pr-1">
+                      <div className="mb-3 rounded-lg border border-white/10 bg-[#121025] p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">URL Preview</p>
+                          <button
+                            type="button"
+                            onClick={copyUrlPreview}
+                            disabled={!urlPreview.value}
+                            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                              urlPreviewCopied
+                                ? "border-emerald-300/50 bg-emerald-500/20 text-emerald-100"
+                                : "border-white/15 bg-[#1a1728] text-zinc-200 hover:bg-white/10"
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                            aria-label="Copiar URL preview"
+                            title="Copiar URL preview"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </button>
+                        </div>
+                        {urlPreview.error ? (
+                          <p className="text-xs text-rose-300">{urlPreview.error}</p>
+                        ) : (
+                          <p className="break-all text-xs text-zinc-200">{urlPreview.value || "--"}</p>
+                        )}
+                      </div>
+
                       <KeyValueEditor
                         rows={activeRequest.params}
                         onChange={(rowId, field, value) => updateRow("params", rowId, field, value)}
@@ -2410,7 +2506,7 @@ export default function CollectionDetailsPage() {
                   )}
 
                   {requestTab === "body" && (
-                    <div className="space-y-3 xl:flex xl:h-full xl:flex-col xl:space-y-2">
+                    <div className="flex h-full flex-col space-y-2">
                       <select
                         value={activeRequest.bodyMode}
                         onChange={(event) =>
@@ -2419,7 +2515,7 @@ export default function CollectionDetailsPage() {
                             bodyMode: event.target.value as ApiRequest["bodyMode"],
                           }))
                         }
-                        className="h-10 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2 xl:shrink-0"
+                        className="h-10 shrink-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
                       >
                         <option value="none">Sem body</option>
                         <option value="json">JSON</option>
@@ -2441,7 +2537,7 @@ export default function CollectionDetailsPage() {
                         enableTemplateAutocomplete={activeRequest.bodyMode !== "none"}
                         templateVariables={templateVariableOptions}
                         height={280}
-                        className={activeRequest.bodyMode === "none" ? "opacity-60 xl:min-h-0 xl:flex-1" : "xl:min-h-0 xl:flex-1"}
+                        className={activeRequest.bodyMode === "none" ? "min-h-0 flex-1 opacity-60" : "min-h-0 flex-1"}
                         placeholder={
                           activeRequest.bodyMode === "none"
                             ? "Selecione JSON ou Text para habilitar o body."
@@ -2568,7 +2664,7 @@ export default function CollectionDetailsPage() {
                   )}
 
                   {requestTab === "script" && (
-                    <div className="space-y-3 xl:flex xl:h-full xl:flex-col xl:space-y-2">
+                    <div className="flex h-full flex-col space-y-2">
                       <div className="flex gap-2">
                         <button
                           type="button"
@@ -2611,7 +2707,7 @@ export default function CollectionDetailsPage() {
                         enableTemplateAutocomplete
                         templateVariables={templateVariableOptions}
                         height={280}
-                        className="xl:min-h-0 xl:flex-1"
+                        className="min-h-0 flex-1"
                         placeholder={
                           scriptTab === "pre-request"
                             ? "// apinaut.environment.set('baseUrl', 'http://localhost:8080');"
@@ -2634,7 +2730,7 @@ export default function CollectionDetailsPage() {
             )}
           </section>
 
-          <div className="relative hidden bg-white/10 xl:block">
+          <div className="relative bg-white/10">
             <button
               type="button"
               onMouseDown={(event) => {
@@ -2646,8 +2742,8 @@ export default function CollectionDetailsPage() {
             />
           </div>
 
-          <section className="border-y border-white/10 bg-[#1a1728] p-5 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
-            <div className="mb-3 grid grid-cols-3 gap-2 xl:shrink-0">
+          <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] p-5">
+            <div className="mb-3 grid shrink-0 grid-cols-3 gap-2">
               <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
                 <p className="text-[11px] uppercase tracking-wide text-zinc-400">Status</p>
                 <p
@@ -2674,9 +2770,9 @@ export default function CollectionDetailsPage() {
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-white/10 bg-[#121025] xl:min-h-0 xl:flex-1">
-              <div className="flex items-center gap-1 border-b border-white/10 p-1 xl:shrink-0">
-                {[
+            <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-white/10 bg-[#121025]">
+              <div className="flex shrink-0 items-center gap-1 border-b border-white/10 p-1">
+                {[ 
                   { id: "body", label: "Body" },
                   { id: "headers", label: "Headers" },
                   { id: "cookies", label: "Cookies" },
@@ -2696,27 +2792,63 @@ export default function CollectionDetailsPage() {
                 ))}
               </div>
 
-              <CodeEditor
-                value={responsePaneContent}
-                readOnly
-                language={responseLanguage}
-                jsonColorPreset="response"
-                errorTone={hasResponseError}
-                height="100%"
-                className="h-[486px] overflow-auto rounded-none border-0 xl:h-full"
-                placeholder={
-                  responseTab === "cookies"
-                    ? "Nenhum cookie retornado."
-                    : responseTab === "headers"
-                      ? "Nenhum header retornado."
-                      : "Nenhuma resposta ainda."
-                }
-              />
+              {responseTab === "body" && (
+                <div className="flex shrink-0 items-center gap-1 border-b border-white/10 p-1">
+                  {[
+                    { id: "code", label: "Codigo" },
+                    { id: "web", label: "Web" },
+                  ].map((mode) => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => setResponseBodyView(mode.id as ResponseBodyView)}
+                      className={`rounded-md px-3 py-1.5 text-xs transition ${
+                        responseBodyView === mode.id
+                          ? "bg-violet-500 text-white"
+                          : "text-zinc-300 hover:bg-white/10"
+                      }`}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {responseTab === "body" && responseBodyView === "web" ? (
+                <div className="h-[486px] overflow-hidden rounded-none border-0 bg-[#0f0d18]">
+                  {requestError ? (
+                    <div className="p-3 text-sm text-rose-300">Nao foi possivel renderizar a pagina por erro na requisicao.</div>
+                  ) : !result ? (
+                    <div className="p-3 text-sm text-zinc-400">Nenhuma resposta ainda.</div>
+                  ) : (
+                    <iframe
+                      title="Preview da resposta"
+                      sandbox="allow-forms allow-scripts allow-same-origin"
+                      srcDoc={responseWebPreviewDocument}
+                      className="h-full w-full border-0 bg-white"
+                    />
+                  )}
+                </div>
+              ) : (
+                <CodeEditor
+                  value={responsePaneContent}
+                  readOnly
+                  language={responseLanguage}
+                  jsonColorPreset="response"
+                  errorTone={hasResponseError}
+                  height="100%"
+                  className="h-[486px] overflow-auto rounded-none border-0"
+                  placeholder={
+                    responseTab === "cookies"
+                      ? "Nenhum cookie retornado."
+                      : responseTab === "headers"
+                        ? "Nenhum header retornado."
+                        : "Nenhuma resposta ainda."
+                  }
+                />
+              )}
             </div>
 
-            {result && (
-              <p className="mt-2 truncate text-xs text-zinc-500">URL final: {result.finalUrl}</p>
-            )}
           </section>
         </div>
       </div>
@@ -2766,7 +2898,7 @@ export default function CollectionDetailsPage() {
       {templateSuggestion && (
         <div
           ref={templateSuggestionRef}
-          className="fixed z-50 w-60 overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
+          className="fixed z-50 w-80 overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
           style={{
             left: templateSuggestion.x,
             top: templateSuggestion.y,
@@ -2781,7 +2913,7 @@ export default function CollectionDetailsPage() {
               type="button"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => applyTemplateSuggestion(option)}
-              className={`w-full rounded-md px-2 py-1.5 text-left text-sm transition ${
+              className={`w-full rounded-md px-3 py-2 text-left text-[13px] transition ${
                 templateSuggestion.selectedIndex === index
                   ? "bg-violet-500/35 text-violet-50"
                   : "text-zinc-100 hover:bg-white/10"

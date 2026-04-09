@@ -7,6 +7,7 @@ import {
   closeBrackets,
   completionKeymap,
   startCompletion,
+  type CompletionContext,
   type Completion,
 } from "@codemirror/autocomplete";
 import { javascript } from "@codemirror/lang-javascript";
@@ -15,7 +16,16 @@ import { EditorState, Prec } from "@codemirror/state";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { EditorView, keymap, placeholder as placeholderExtension } from "@codemirror/view";
+import {
+  Decoration,
+  EditorView,
+  MatchDecorator,
+  type ViewUpdate,
+  ViewPlugin,
+  WidgetType,
+  keymap,
+  placeholder as placeholderExtension,
+} from "@codemirror/view";
 import { cn } from "@/lib/utils";
 
 type EditorLanguage = "json" | "javascript" | "text";
@@ -33,6 +43,10 @@ type CodeEditorProps = {
   enableTemplateAutocomplete?: boolean;
   templateVariables?: string[];
   jsonColorPreset?: "default" | "response";
+  lineNumbers?: boolean;
+  compact?: boolean;
+  singleLine?: boolean;
+  allowOverflowVisible?: boolean;
 };
 
 const editorTheme = EditorView.theme(
@@ -100,8 +114,157 @@ const responseJsonHighlight = HighlightStyle.define([
   { tag: [tags.propertyName, tags.attributeName, tags.labelName], color: "#facc15" },
 ]);
 
-const TEMPLATE_MATCH_REGEX = /\{\{([A-Za-z0-9_.-]*)$/;
 const TEMPLATE_VALID_FOR_REGEX = /^[A-Za-z0-9_.-]*$/;
+const TEMPLATE_TOKEN_REGEX = /\{\{\s*[A-Za-z0-9_.-]+\s*\}\}/g;
+
+const getTemplateTrigger = (context: CompletionContext) => {
+  const maxScan = 200;
+  const start = Math.max(0, context.pos - maxScan);
+  const beforeCaret = context.state.sliceDoc(start, context.pos);
+  const markerIndex = beforeCaret.lastIndexOf("{{");
+
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const query = beforeCaret.slice(markerIndex + 2);
+
+  if (!TEMPLATE_VALID_FOR_REGEX.test(query)) {
+    return null;
+  }
+
+  return {
+    from: start + markerIndex,
+    query,
+  };
+};
+
+class TemplateTokenWidget extends WidgetType {
+  constructor(private readonly tokenLabel: string) {
+    super();
+  }
+
+  eq(other: TemplateTokenWidget) {
+    return this.tokenLabel === other.tokenLabel;
+  }
+
+  toDOM() {
+    const element = document.createElement("span");
+    element.className = "cm-template-token-chip";
+    element.textContent = this.tokenLabel;
+    return element;
+  }
+}
+
+const extractTemplateTokenLabel = (rawToken: string) => rawToken.replace(/^\{\{\s*|\s*\}\}$/g, "");
+
+const templateTokenDecorator = new MatchDecorator({
+  regexp: TEMPLATE_TOKEN_REGEX,
+  decoration: (match) =>
+    Decoration.replace({
+      widget: new TemplateTokenWidget(extractTemplateTokenLabel(match[0])),
+      inclusive: false,
+    }),
+});
+
+const templateTokenPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: ReturnType<typeof templateTokenDecorator.createDeco>;
+
+    constructor(view: EditorView) {
+      this.decorations = templateTokenDecorator.createDeco(view);
+    }
+
+    update(update: ViewUpdate) {
+      this.decorations = templateTokenDecorator.updateDeco(update, this.decorations);
+    }
+  },
+  {
+    decorations: (instance) => instance.decorations,
+    provide: (plugin) =>
+      EditorView.atomicRanges.of((view) => view.plugin(plugin)?.decorations ?? Decoration.none),
+  },
+);
+
+const templateTokenTheme = EditorView.baseTheme({
+  ".cm-template-token-chip": {
+    borderRadius: "8px",
+    border: "1px solid rgba(167,139,250,0.7)",
+    backgroundColor: "rgba(139,92,246,0.35)",
+    color: "#f5f3ff",
+    padding: "0 4px",
+    marginInline: "1px",
+    boxShadow: "inset 0 0 0 1px rgba(99,65,194,0.2)",
+  },
+});
+
+const compactEditorTheme = EditorView.theme(
+  {
+    ".cm-gutters": {
+      display: "none",
+      borderRight: "0",
+    },
+    ".cm-content": {
+      padding: "8px 10px",
+      minWidth: "100%",
+    },
+    ".cm-line": {
+      padding: "0",
+    },
+    ".cm-scroller": {
+      lineHeight: "1.35",
+      overflowX: "hidden",
+      overflowY: "hidden",
+      scrollbarWidth: "none",
+    },
+    ".cm-scroller::-webkit-scrollbar": {
+      display: "none",
+    },
+  },
+  { dark: true },
+);
+
+const overflowVisibleEditorTheme = EditorView.theme(
+  {
+    "&": {
+      overflow: "visible",
+    },
+    ".cm-tooltip": {
+      zIndex: "60",
+    },
+  },
+  { dark: true },
+);
+
+const autocompleteMenuTheme = EditorView.theme(
+  {
+    ".cm-tooltip.cm-tooltip-autocomplete": {
+      minWidth: "320px",
+      maxWidth: "420px",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: "10px",
+      backgroundColor: "#1a1728",
+      boxShadow: "0 10px 26px rgba(0,0,0,0.45)",
+      fontSize: "13px",
+      overflow: "hidden",
+    },
+    ".cm-tooltip-autocomplete > ul": {
+      maxHeight: "320px",
+      overflowY: "auto",
+      padding: "4px",
+    },
+    ".cm-tooltip-autocomplete > ul > li": {
+      borderRadius: "8px",
+      padding: "8px 10px",
+      color: "#e4e4e7",
+    },
+    ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+      backgroundColor: "rgba(139,92,246,0.35)",
+      color: "#f5f3ff",
+    },
+  },
+  { dark: true },
+);
 
 export const CodeEditor = ({
   value,
@@ -116,9 +279,17 @@ export const CodeEditor = ({
   enableTemplateAutocomplete = false,
   templateVariables = [],
   jsonColorPreset = "default",
+  lineNumbers = true,
+  compact = false,
+  singleLine = false,
+  allowOverflowVisible = false,
 }: CodeEditorProps) => {
   const extensions = useMemo(() => {
-    const nextExtensions: Extension[] = [EditorView.lineWrapping, editorTheme];
+    const nextExtensions: Extension[] = [editorTheme];
+
+    if (!singleLine) {
+      nextExtensions.push(EditorView.lineWrapping);
+    }
     const templateCompletions = Array.from(new Set(templateVariables.map((item) => item.trim()).filter(Boolean))).map(
       (variable) =>
         ({
@@ -135,10 +306,10 @@ export const CodeEditor = ({
           defaultKeymap: false,
           override: [
             (context) => {
-              const tokenMatch = context.matchBefore(TEMPLATE_MATCH_REGEX);
+              const trigger = getTemplateTrigger(context);
 
-              if (tokenMatch) {
-                const query = tokenMatch.text.slice(2).toLowerCase();
+              if (trigger) {
+                const query = trigger.query.toLowerCase();
                 const filtered = query
                   ? templateCompletions.filter((option) => option.label.toLowerCase().includes(query))
                   : templateCompletions;
@@ -148,7 +319,7 @@ export const CodeEditor = ({
                 }
 
                 return {
-                  from: tokenMatch.from,
+                  from: trigger.from,
                   to: context.pos,
                   options: filtered.length ? filtered : templateCompletions,
                   validFor: TEMPLATE_VALID_FOR_REGEX,
@@ -167,7 +338,24 @@ export const CodeEditor = ({
           ],
         }),
         Prec.highest(keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...completionKeymap])),
+        autocompleteMenuTheme,
+        EditorView.updateListener.of((update) => {
+          if (!update.docChanged) {
+            return;
+          }
+
+          const cursor = update.state.selection.main.head;
+          const before = update.state.sliceDoc(Math.max(0, cursor - 2), cursor);
+
+          if (before === "{{") {
+            startCompletion(update.view);
+          }
+        }),
       );
+    }
+
+    if (enableTemplateAutocomplete) {
+      nextExtensions.push(templateTokenPlugin, templateTokenTheme);
     }
 
     if (language === "json") {
@@ -195,6 +383,29 @@ export const CodeEditor = ({
       nextExtensions.push(javascript());
     }
 
+    if (compact) {
+      nextExtensions.push(compactEditorTheme);
+    }
+
+    if (allowOverflowVisible) {
+      nextExtensions.push(overflowVisibleEditorTheme);
+    }
+
+    if (singleLine) {
+      nextExtensions.push(
+        keymap.of([
+          {
+            key: "Enter",
+            run: () => true,
+          },
+          {
+            key: "Mod-Enter",
+            run: () => true,
+          },
+        ]),
+      );
+    }
+
     if (placeholder) {
       nextExtensions.push(placeholderExtension(placeholder));
     }
@@ -212,11 +423,20 @@ export const CodeEditor = ({
     language,
     placeholder,
     readOnly,
+    allowOverflowVisible,
+    compact,
+    singleLine,
     templateVariables,
   ]);
 
   return (
-    <div className={cn("overflow-hidden rounded-lg border border-white/15 bg-[#121025]", className)}>
+    <div
+      className={cn(
+        allowOverflowVisible ? "overflow-visible" : "overflow-hidden",
+        "rounded-lg border border-white/15 bg-[#121025]",
+        className,
+      )}
+    >
       <CodeMirror
         value={value}
         onChange={(nextValue) => onChange?.(nextValue)}
@@ -226,10 +446,10 @@ export const CodeEditor = ({
         theme={oneDark}
         extensions={extensions}
         basicSetup={{
-          lineNumbers: true,
+          lineNumbers,
           foldGutter: false,
-          highlightActiveLine: true,
-          highlightActiveLineGutter: true,
+          highlightActiveLine: !compact,
+          highlightActiveLineGutter: lineNumbers && !compact,
           bracketMatching: true,
           autocompletion: false,
           closeBrackets: false,

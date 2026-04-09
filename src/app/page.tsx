@@ -1,7 +1,16 @@
 "use client";
 
-import Link from "next/link";
-import { FormEvent, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
+import { useRouter } from "next/navigation";
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { dump, load } from "js-yaml";
 import {
   Collection,
@@ -14,7 +23,18 @@ import {
   subscribeCollections,
 } from "@/lib/collections";
 
+type CollectionMenuState = {
+  collectionId: string;
+  x: number;
+  y: number;
+} | null;
+
+const COLLECTION_MENU_WIDTH = 172;
+const COLLECTION_MENU_HEIGHT = 88;
+const MENU_VIEWPORT_PADDING = 8;
+
 export default function Home() {
+  const router = useRouter();
   const collections = useSyncExternalStore(
     subscribeCollections,
     getCollectionsSnapshot,
@@ -24,14 +44,26 @@ export default function Home() {
   const [name, setName] = useState("");
   const [ioFeedback, setIoFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const collectionMenuRef = useRef<HTMLDivElement | null>(null);
+  const [collectionMenu, setCollectionMenu] = useState<CollectionMenuState>(null);
 
   const showFeedback = (type: "success" | "error", message: string) => {
     setIoFeedback({ type, message });
   };
 
-  const getExportFileName = (extension: "json" | "yaml") => {
+  const sanitizeFileSegment = (value: string) => {
+    const clean = value
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    return clean || "collection";
+  };
+
+  const getExportFileName = (baseName: string, extension: "json" | "yaml") => {
     const datePart = new Date().toISOString().slice(0, 10);
-    return `apinaut-collections-${datePart}.${extension}`;
+    return `${baseName}-${datePart}.${extension}`;
   };
 
   const triggerDownload = (fileName: string, content: string, mimeType: string) => {
@@ -44,29 +76,99 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const handleExport = (format: "json" | "yaml") => {
+  const handleExport = (format: "json" | "yaml", targetCollections: Collection[] = collections) => {
     try {
-      const payload = createCollectionsExportPayload(collections);
+      const payload = createCollectionsExportPayload(targetCollections);
+      const fileBaseName =
+        targetCollections.length === 1
+          ? `apinaut-${sanitizeFileSegment(targetCollections[0].name)}`
+          : "apinaut-collections";
 
       if (format === "json") {
         triggerDownload(
-          getExportFileName("json"),
+          getExportFileName(fileBaseName, "json"),
           JSON.stringify(payload, null, 2),
           "application/json;charset=utf-8",
         );
       } else {
         triggerDownload(
-          getExportFileName("yaml"),
+          getExportFileName(fileBaseName, "yaml"),
           dump(payload, { noRefs: true }),
           "application/x-yaml;charset=utf-8",
         );
       }
 
-      showFeedback("success", `Exportação em ${format.toUpperCase()} concluída.`);
+      const scopeLabel =
+        targetCollections.length === 1 ? ` da coleção "${targetCollections[0].name}"` : " das coleções";
+      showFeedback("success", `Exportação em ${format.toUpperCase()}${scopeLabel} concluída.`);
     } catch {
       showFeedback("error", "Não foi possível exportar as coleções.");
     }
   };
+
+  const openCollectionMenu = (event: ReactMouseEvent<HTMLButtonElement>, collectionId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const x = Math.max(
+      MENU_VIEWPORT_PADDING,
+      Math.min(event.clientX, window.innerWidth - COLLECTION_MENU_WIDTH - MENU_VIEWPORT_PADDING),
+    );
+    const y = Math.max(
+      MENU_VIEWPORT_PADDING,
+      Math.min(event.clientY, window.innerHeight - COLLECTION_MENU_HEIGHT - MENU_VIEWPORT_PADDING),
+    );
+
+    setCollectionMenu({
+      collectionId,
+      x,
+      y,
+    });
+  };
+
+  useEffect(() => {
+    if (!collectionMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        collectionMenuRef.current &&
+        event.target instanceof Node &&
+        collectionMenuRef.current.contains(event.target)
+      ) {
+        return;
+      }
+
+      setCollectionMenu(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setCollectionMenu(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setCollectionMenu(null);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("scroll", handleScroll, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [collectionMenu]);
+
+  const selectedMenuCollection = useMemo(
+    () =>
+      collectionMenu ? collections.find((collection) => collection.id === collectionMenu.collectionId) ?? null : null,
+    [collectionMenu, collections],
+  );
 
   const ensureUniqueCollectionIds = (items: Collection[], existing: Collection[]) => {
     const seenIds = new Set(existing.map((collection) => collection.id));
@@ -167,7 +269,7 @@ export default function Home() {
       <div className="mx-auto w-full max-w-4xl">
         <div className="mb-6 flex items-center justify-between gap-4">
           <h1 className="text-xl font-semibold text-white">Coleções</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -181,20 +283,6 @@ export default function Home() {
               className="rounded-xl border border-white/15 bg-[#1a1728] px-4 py-3 text-sm font-semibold text-zinc-100 transition hover:bg-[#221f33]"
             >
               Importar
-            </button>
-            <button
-              type="button"
-              onClick={() => handleExport("json")}
-              className="rounded-xl border border-violet-300/40 bg-violet-500/15 px-4 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/25"
-            >
-              Exportar JSON
-            </button>
-            <button
-              type="button"
-              onClick={() => handleExport("yaml")}
-              className="rounded-xl border border-violet-300/40 bg-violet-500/15 px-4 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/25"
-            >
-              Exportar YAML
             </button>
             <button
               type="button"
@@ -218,9 +306,9 @@ export default function Home() {
           </div>
         )}
 
-        <section className="space-y-3">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {collections.length === 0 && (
-            <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-sm text-zinc-300">
+            <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-sm text-zinc-300 sm:col-span-2 lg:col-span-3">
               Nenhuma coleção criada ainda.
             </div>
           )}
@@ -229,28 +317,74 @@ export default function Home() {
             const requestCount = countRequestsInTree(collection.requestTree);
 
             return (
-              <Link
+              <article
                 key={collection.id}
-                href={`/collections/${collection.id}`}
-                className="block rounded-xl border border-white/10 bg-[#1a1728] p-4 text-white transition hover:border-violet-300/40 hover:bg-[#221f33]"
+                tabIndex={0}
+                role="link"
+                onClick={() => router.push(`/collections/${collection.id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    router.push(`/collections/${collection.id}`);
+                  }
+                }}
+                className="flex aspect-square cursor-pointer flex-col rounded-xl border border-white/10 bg-[#1a1728] p-4 text-white transition hover:border-violet-300/40 hover:bg-[#221f33] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-semibold">{collection.name}</h2>
-                    <p className="mt-1 text-xs text-zinc-400">
-                      Criada em {new Date(collection.createdAt).toLocaleString("pt-BR")}
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {requestCount} requisicao(oes)
-                    </p>
-                  </div>
-                  <span className="text-sm text-zinc-300">Abrir</span>
+                <div className="flex items-start justify-between gap-2">
+                  <h2 className="line-clamp-2 pr-2 text-base font-semibold">{collection.name}</h2>
+                  <button
+                    type="button"
+                    onClick={(event) => openCollectionMenu(event, collection.id)}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-[#121025] text-sm text-zinc-300 transition hover:border-violet-300/45 hover:text-violet-100"
+                    aria-label={`Opções da coleção ${collection.name}`}
+                    title="Opções"
+                  >
+                    ⋯
+                  </button>
                 </div>
-              </Link>
+
+                <div className="mt-3 space-y-1 text-xs text-zinc-400">
+                  <p>Criada em {new Date(collection.createdAt).toLocaleDateString("pt-BR")}</p>
+                  <p className="text-zinc-500">{requestCount} requisicao(oes)</p>
+                </div>
+                <div className="mt-auto pt-4 text-xs font-medium text-violet-200/80">Clique para abrir</div>
+              </article>
             );
           })}
         </section>
       </div>
+
+      {collectionMenu && selectedMenuCollection && (
+        <div
+          ref={collectionMenuRef}
+          className="fixed z-40 w-44 overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
+          style={{
+            left: collectionMenu.x,
+            top: collectionMenu.y,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              handleExport("json", [selectedMenuCollection]);
+              setCollectionMenu(null);
+            }}
+            className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
+          >
+            Exportar JSON
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              handleExport("yaml", [selectedMenuCollection]);
+              setCollectionMenu(null);
+            }}
+            className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
+          >
+            Exportar YAML
+          </button>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-6">
