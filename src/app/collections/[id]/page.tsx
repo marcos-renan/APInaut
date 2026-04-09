@@ -9,12 +9,26 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { AlertTriangle, Eye, EyeOff, Plus, Send, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Plus,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { CodeEditor } from "@/components/code-editor";
 import {
   ApiRequest,
+  RequestTreeFolderNode,
+  RequestTreeNode,
   KeyValueRow,
   createDefaultRequest,
   getCollectionsServerSnapshot,
@@ -46,6 +60,11 @@ type RequestContextMenuState = {
   y: number;
 } | null;
 
+type DragDropTarget =
+  | { type: "root" }
+  | { type: "folder"; folderId: string }
+  | null;
+
 const MIN_LEFT_PANEL_WIDTH = 170;
 const MIN_CENTER_PANEL_WIDTH = 420;
 const MIN_RIGHT_PANEL_WIDTH = 280;
@@ -56,6 +75,7 @@ const DEFAULT_LEFT_PANEL_WIDTH = 240;
 const REQUEST_CONTEXT_MENU_WIDTH = 176;
 const REQUEST_CONTEXT_MENU_HEIGHT = 96;
 const REQUEST_CONTEXT_MENU_VIEWPORT_PADDING = 8;
+const REQUEST_LIST_INDENT = 16;
 const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 const METHOD_STYLE_MAP: Record<
@@ -166,6 +186,227 @@ const createRequestForUi = (name: string): ApiRequest => ({
   params: [createRow()],
   headers: [createRow()],
 });
+
+const createRequestNode = (name = "New Request"): RequestTreeNode => {
+  const request = createRequestForUi(name);
+
+  return {
+    id: request.id,
+    type: "request",
+    request,
+  };
+};
+
+const createFolderNode = (name = "New Folder"): RequestTreeFolderNode => ({
+  id: crypto.randomUUID(),
+  type: "folder",
+  name,
+  children: [],
+});
+
+const hasRequestInTree = (tree: RequestTreeNode[], requestId: string | null): boolean => {
+  if (!requestId) {
+    return false;
+  }
+
+  for (const node of tree) {
+    if (node.type === "request") {
+      if (node.id === requestId) {
+        return true;
+      }
+      continue;
+    }
+
+    if (hasRequestInTree(node.children, requestId)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const findFirstRequestId = (tree: RequestTreeNode[]): string | null => {
+  for (const node of tree) {
+    if (node.type === "request") {
+      return node.id;
+    }
+
+    const nested = findFirstRequestId(node.children);
+
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+};
+
+const findRequestById = (tree: RequestTreeNode[], requestId: string | null): ApiRequest | null => {
+  if (!requestId) {
+    return null;
+  }
+
+  for (const node of tree) {
+    if (node.type === "request") {
+      if (node.id === requestId) {
+        return node.request;
+      }
+      continue;
+    }
+
+    const nested = findRequestById(node.children, requestId);
+
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+};
+
+const updateRequestInTree = (
+  tree: RequestTreeNode[],
+  requestId: string,
+  updater: (request: ApiRequest) => ApiRequest,
+): RequestTreeNode[] =>
+  tree.map((node) => {
+    if (node.type === "request") {
+      if (node.id !== requestId) {
+        return node;
+      }
+
+      const nextRequest = updater(node.request);
+
+      return {
+        ...node,
+        id: nextRequest.id,
+        request: nextRequest,
+      };
+    }
+
+    return {
+      ...node,
+      children: updateRequestInTree(node.children, requestId, updater),
+    };
+  });
+
+const removeNodeById = (
+  tree: RequestTreeNode[],
+  nodeId: string,
+): { tree: RequestTreeNode[]; removed: RequestTreeNode | null } => {
+  let removed: RequestTreeNode | null = null;
+
+  const nextTree = tree.reduce<RequestTreeNode[]>((accumulator, node) => {
+    if (node.id === nodeId) {
+      removed = node;
+      return accumulator;
+    }
+
+    if (node.type === "folder") {
+      const nested = removeNodeById(node.children, nodeId);
+
+      if (nested.removed) {
+        removed = nested.removed;
+
+        accumulator.push({
+          ...node,
+          children: nested.tree,
+        });
+
+        return accumulator;
+      }
+    }
+
+    accumulator.push(node);
+    return accumulator;
+  }, []);
+
+  return {
+    tree: nextTree,
+    removed,
+  };
+};
+
+const insertIntoFolderById = (
+  tree: RequestTreeNode[],
+  folderId: string,
+  nodeToInsert: RequestTreeNode,
+): { tree: RequestTreeNode[]; inserted: boolean } => {
+  let inserted = false;
+
+  const nextTree = tree.map((node) => {
+    if (node.type !== "folder") {
+      return node;
+    }
+
+    if (node.id === folderId) {
+      inserted = true;
+      return {
+        ...node,
+        children: [...node.children, nodeToInsert],
+      };
+    }
+
+    const nested = insertIntoFolderById(node.children, folderId, nodeToInsert);
+
+    if (nested.inserted) {
+      inserted = true;
+      return {
+        ...node,
+        children: nested.tree,
+      };
+    }
+
+    return node;
+  });
+
+  return {
+    tree: nextTree,
+    inserted,
+  };
+};
+
+const nodeContainsNodeId = (node: RequestTreeNode, targetNodeId: string): boolean => {
+  if (node.id === targetNodeId) {
+    return true;
+  }
+
+  if (node.type !== "folder") {
+    return false;
+  }
+
+  return node.children.some((child) => nodeContainsNodeId(child, targetNodeId));
+};
+
+const moveNodeToTarget = (
+  tree: RequestTreeNode[],
+  sourceNodeId: string,
+  targetFolderId: string | null,
+): RequestTreeNode[] => {
+  const removedSource = removeNodeById(tree, sourceNodeId);
+
+  if (!removedSource.removed) {
+    return tree;
+  }
+
+  const movingNode = removedSource.removed;
+
+  if (targetFolderId === null) {
+    return [...removedSource.tree, movingNode];
+  }
+
+  if (nodeContainsNodeId(movingNode, targetFolderId)) {
+    return tree;
+  }
+
+  const inserted = insertIntoFolderById(removedSource.tree, targetFolderId, movingNode);
+
+  if (!inserted.inserted) {
+    return tree;
+  }
+
+  return inserted.tree;
+};
 
 const buildUrlWithParams = (baseUrl: string, params: KeyValueRow[]) => {
   const url = new URL(baseUrl);
@@ -383,9 +624,12 @@ export default function CollectionDetailsPage() {
   const [result, setResult] = useState<RequestExecutionResult | null>(null);
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showBasicPassword, setShowBasicPassword] = useState(false);
+  const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [editingRequestName, setEditingRequestName] = useState("");
   const [requestContextMenu, setRequestContextMenu] = useState<RequestContextMenuState>(null);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [dragDropTarget, setDragDropTarget] = useState<DragDropTarget>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useState(initialPaneWidthsRef.current.left);
   const [rightPanelWidth, setRightPanelWidth] = useState(initialPaneWidthsRef.current.right);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
@@ -506,33 +750,32 @@ export default function CollectionDetailsPage() {
     };
   }, [leftPanelWidth, resizingPane, rightPanelWidth]);
 
+  const requestTree = useMemo(() => collection?.requestTree ?? [], [collection]);
+
   useEffect(() => {
-    if (!collection?.requests.length) {
+    const firstRequestId = findFirstRequestId(requestTree);
+
+    if (!firstRequestId) {
       setActiveRequestId(null);
       return;
     }
 
-    const stillExists = collection.requests.some((request) => request.id === activeRequestId);
-
-    if (!stillExists) {
-      setActiveRequestId(collection.requests[0].id);
+    if (!hasRequestInTree(requestTree, activeRequestId)) {
+      setActiveRequestId(firstRequestId);
     }
-  }, [collection, activeRequestId]);
+  }, [activeRequestId, requestTree]);
 
   const activeRequest = useMemo(
-    () => collection?.requests.find((request) => request.id === activeRequestId) ?? null,
-    [collection, activeRequestId],
+    () => findRequestById(requestTree, activeRequestId),
+    [requestTree, activeRequestId],
   );
 
   const requestContextMenuTarget = useMemo(
-    () =>
-      requestContextMenu && collection
-        ? collection.requests.find((request) => request.id === requestContextMenu.requestId) ?? null
-        : null,
-    [collection, requestContextMenu],
+    () => (requestContextMenu ? findRequestById(requestTree, requestContextMenu.requestId) : null),
+    [requestContextMenu, requestTree],
   );
 
-  const updateCollectionRequests = (updater: (requests: ApiRequest[]) => ApiRequest[]) => {
+  const updateCollectionTree = (updater: (tree: RequestTreeNode[]) => RequestTreeNode[]) => {
     if (!collectionId) {
       return;
     }
@@ -545,7 +788,7 @@ export default function CollectionDetailsPage() {
 
         return {
           ...item,
-          requests: updater(item.requests),
+          requestTree: updater(item.requestTree),
         };
       }),
     );
@@ -556,12 +799,8 @@ export default function CollectionDetailsPage() {
       return;
     }
 
-    updateCollectionRequests((requests) =>
-      requests.map((request) => {
-        if (request.id !== activeRequestId) {
-          return request;
-        }
-
+    updateCollectionTree((tree) =>
+      updateRequestInTree(tree, activeRequestId, (request) => {
         const nextRequest = updater(request);
 
         return {
@@ -604,17 +843,34 @@ export default function CollectionDetailsPage() {
   };
 
   const createRequest = () => {
-    const nextName = `Requisicao ${collection ? collection.requests.length + 1 : 1}`;
-    const newRequest = createRequestForUi(nextName);
+    const newRequestNode = createRequestNode("New Request");
 
-    updateCollectionRequests((requests) => [newRequest, ...requests]);
-    setActiveRequestId(newRequest.id);
+    updateCollectionTree((tree) => [newRequestNode, ...tree]);
+    setActiveRequestId(newRequestNode.id);
     setEditingRequestId(null);
     setEditingRequestName("");
     setRequestContextMenu(null);
     setResult(null);
     setRequestError(null);
     setScriptError(null);
+  };
+
+  const createFolder = () => {
+    const folderNode = createFolderNode("New Folder");
+
+    updateCollectionTree((tree) => [folderNode, ...tree]);
+    setExpandedFolderIds((current) =>
+      current.includes(folderNode.id) ? current : [folderNode.id, ...current],
+    );
+    setRequestContextMenu(null);
+  };
+
+  const toggleFolderExpanded = (folderId: string) => {
+    setExpandedFolderIds((current) =>
+      current.includes(folderId)
+        ? current.filter((entry) => entry !== folderId)
+        : [...current, folderId],
+    );
   };
 
   const selectRequest = (requestId: string) => {
@@ -645,8 +901,11 @@ export default function CollectionDetailsPage() {
     const nextName = editingRequestName.trim();
 
     if (nextName) {
-      updateCollectionRequests((requests) =>
-        requests.map((request) => (request.id === editingRequestId ? { ...request, name: nextName } : request)),
+      updateCollectionTree((tree) =>
+        updateRequestInTree(tree, editingRequestId, (request) => ({
+          ...request,
+          name: nextName,
+        })),
       );
     }
 
@@ -654,7 +913,7 @@ export default function CollectionDetailsPage() {
   };
 
   const deleteRequest = (requestId: string) => {
-    updateCollectionRequests((requests) => requests.filter((request) => request.id !== requestId));
+    updateCollectionTree((tree) => removeNodeById(tree, requestId).tree);
 
     if (editingRequestId === requestId) {
       cancelEditingRequestName();
@@ -667,6 +926,76 @@ export default function CollectionDetailsPage() {
     }
 
     setRequestContextMenu(null);
+  };
+
+  const beginDragNode = (nodeId: string) => (event: ReactDragEvent<HTMLElement>) => {
+    event.stopPropagation();
+    setDraggingNodeId(nodeId);
+    setDragDropTarget(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", nodeId);
+  };
+
+  const endDragNode = () => {
+    setDraggingNodeId(null);
+    setDragDropTarget(null);
+  };
+
+  const commitDrop = (targetFolderId: string | null) => {
+    if (!draggingNodeId) {
+      return;
+    }
+
+    updateCollectionTree((tree) => moveNodeToTarget(tree, draggingNodeId, targetFolderId));
+
+    if (targetFolderId) {
+      setExpandedFolderIds((current) =>
+        current.includes(targetFolderId) ? current : [...current, targetFolderId],
+      );
+    }
+
+    setDragDropTarget(null);
+    setDraggingNodeId(null);
+  };
+
+  const dragOverRoot = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!draggingNodeId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setDragDropTarget({ type: "root" });
+  };
+
+  const dropOnRoot = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!draggingNodeId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    commitDrop(null);
+  };
+
+  const dragOverFolder = (event: ReactDragEvent<HTMLButtonElement>, folderId: string) => {
+    if (!draggingNodeId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setDragDropTarget({ type: "folder", folderId });
+  };
+
+  const dropOnFolder = (event: ReactDragEvent<HTMLButtonElement>, folderId: string) => {
+    if (!draggingNodeId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    commitDrop(folderId);
   };
 
   const openRequestContextMenu = (event: ReactMouseEvent<HTMLDivElement>, requestId: string) => {
@@ -899,6 +1228,113 @@ export default function CollectionDetailsPage() {
     "--right-pane-width": `${rightPanelWidth}px`,
   } as CSSProperties;
 
+  const renderRequestTreeNodes = (nodes: RequestTreeNode[], depth = 0) =>
+    nodes.map((node) => {
+      const rowIndentStyle = {
+        paddingLeft: `${depth * REQUEST_LIST_INDENT}px`,
+      };
+
+      if (node.type === "folder") {
+        const isExpanded = expandedFolderIds.includes(node.id);
+        const isDropTarget = dragDropTarget?.type === "folder" && dragDropTarget.folderId === node.id;
+
+        return (
+          <div key={node.id} className="space-y-1">
+            <div style={rowIndentStyle}>
+              <button
+                type="button"
+                draggable
+                onDragStart={beginDragNode(node.id)}
+                onDragEnd={endDragNode}
+                onDragOver={(event) => dragOverFolder(event, node.id)}
+                onDrop={(event) => dropOnFolder(event, node.id)}
+                onClick={() => toggleFolderExpanded(node.id)}
+                className={`flex h-10 w-full items-center gap-2 rounded-lg border px-2 text-left text-sm transition ${
+                  isDropTarget
+                    ? "border-violet-300/60 bg-violet-500/25"
+                    : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
+                }`}
+              >
+                <ChevronRight
+                  className={`h-4 w-4 shrink-0 text-zinc-300 transition ${isExpanded ? "rotate-90" : ""}`}
+                />
+                {isExpanded ? (
+                  <FolderOpen className="h-4 w-4 shrink-0 text-violet-200" />
+                ) : (
+                  <Folder className="h-4 w-4 shrink-0 text-violet-200" />
+                )}
+                <span className="truncate font-medium text-zinc-100">{node.name}</span>
+              </button>
+            </div>
+
+            {isExpanded && node.children.length > 0 && (
+              <div className="space-y-1">{renderRequestTreeNodes(node.children, depth + 1)}</div>
+            )}
+          </div>
+        );
+      }
+
+      const request = node.request;
+      const isEditing = editingRequestId === request.id;
+
+      return (
+        <div key={request.id} style={rowIndentStyle}>
+          <div
+            onContextMenu={(event) => openRequestContextMenu(event, request.id)}
+            className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+              activeRequestId === request.id
+                ? "border-violet-300/50 bg-violet-500/20"
+                : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
+            }`}
+          >
+            <button
+              type="button"
+              draggable={!isEditing}
+              onDragStart={beginDragNode(request.id)}
+              onDragEnd={endDragNode}
+              onClick={() => selectRequest(request.id)}
+              onDoubleClick={() => startEditingRequestName(request.id, request.name)}
+              className="w-full text-left"
+            >
+              <p>
+                <span
+                  className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
+                    METHOD_STYLE_MAP[request.method].badge
+                  }`}
+                >
+                  {request.method}
+                </span>
+              </p>
+              {!isEditing && <p className="truncate font-medium text-zinc-100">{request.name}</p>}
+            </button>
+
+            {isEditing && (
+              <input
+                autoFocus
+                value={editingRequestName}
+                onChange={(event) => setEditingRequestName(event.target.value)}
+                onBlur={commitEditingRequestName}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitEditingRequestName();
+                    return;
+                  }
+
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelEditingRequestName();
+                  }
+                }}
+                className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                placeholder="Nome da requisicao"
+              />
+            )}
+          </div>
+        </div>
+      );
+    });
+
   return (
     <main className="min-h-screen bg-[#100e1a] text-white xl:h-screen xl:overflow-hidden">
       <div className="flex w-full flex-col xl:h-full xl:overflow-hidden">
@@ -922,79 +1358,41 @@ export default function CollectionDetailsPage() {
           <aside className="border-y border-white/10 bg-[#1a1728] p-3 xl:min-h-0 xl:overflow-auto">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-zinc-300">Requisicoes</h2>
-              <button
-                type="button"
-                onClick={createRequest}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
-                aria-label="Criar nova requisicao"
-                title="Criar nova requisicao"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={createFolder}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
+                  aria-label="Criar nova pasta"
+                  title="Criar nova pasta"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={createRequest}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
+                  aria-label="Criar nova requisicao"
+                  title="Criar nova requisicao"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <div className="space-y-2">
-              {collection.requests.length === 0 && (
+            <div
+              className={`space-y-2 rounded-lg ${
+                dragDropTarget?.type === "root" ? "ring-1 ring-violet-300/60 ring-offset-1 ring-offset-[#1a1728]" : ""
+              }`}
+              onDragOver={dragOverRoot}
+              onDrop={dropOnRoot}
+            >
+              {requestTree.length === 0 && (
                 <p className="rounded-lg border border-dashed border-white/15 p-3 text-xs text-zinc-400">
                   Nenhuma requisicao ainda.
                 </p>
               )}
 
-              {collection.requests.map((request) => {
-                const isEditing = editingRequestId === request.id;
-
-                return (
-                  <div
-                    key={request.id}
-                    onContextMenu={(event) => openRequestContextMenu(event, request.id)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-                      activeRequestId === request.id
-                        ? "border-violet-300/50 bg-violet-500/20"
-                        : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => selectRequest(request.id)}
-                      onDoubleClick={() => startEditingRequestName(request.id, request.name)}
-                      className="w-full text-left"
-                    >
-                      <p>
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
-                            METHOD_STYLE_MAP[request.method].badge
-                          }`}
-                        >
-                          {request.method}
-                        </span>
-                      </p>
-                      {!isEditing && <p className="truncate font-medium text-zinc-100">{request.name}</p>}
-                    </button>
-
-                    {isEditing && (
-                      <input
-                        autoFocus
-                        value={editingRequestName}
-                        onChange={(event) => setEditingRequestName(event.target.value)}
-                        onBlur={commitEditingRequestName}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            commitEditingRequestName();
-                            return;
-                          }
-
-                          if (event.key === "Escape") {
-                            event.preventDefault();
-                            cancelEditingRequestName();
-                          }
-                        }}
-                        className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                        placeholder="Nome da requisicao"
-                      />
-                    )}
-                  </div>
-                );
-              })}
+              {renderRequestTreeNodes(requestTree)}
             </div>
           </aside>
 

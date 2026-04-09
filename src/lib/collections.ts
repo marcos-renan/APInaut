@@ -28,11 +28,26 @@ export type ApiRequest = {
   afterResponseScript: string;
 };
 
+export type RequestTreeRequestNode = {
+  id: string;
+  type: "request";
+  request: ApiRequest;
+};
+
+export type RequestTreeFolderNode = {
+  id: string;
+  type: "folder";
+  name: string;
+  children: RequestTreeNode[];
+};
+
+export type RequestTreeNode = RequestTreeRequestNode | RequestTreeFolderNode;
+
 export type Collection = {
   id: string;
   name: string;
   createdAt: string;
-  requests: ApiRequest[];
+  requestTree: RequestTreeNode[];
 };
 
 const STORAGE_KEY = "apinaut.collections";
@@ -57,7 +72,7 @@ const normalizeRows = (value: unknown): KeyValueRow[] => {
   return value.map((entry) => createRow(typeof entry === "object" && entry ? (entry as KeyValueRow) : {}));
 };
 
-export const createDefaultRequest = (name = "Nova requisicao"): ApiRequest => ({
+export const createDefaultRequest = (name = "New Request"): ApiRequest => ({
   id: crypto.randomUUID(),
   name,
   method: "GET",
@@ -113,24 +128,101 @@ const normalizeRequest = (value: unknown): ApiRequest => {
   };
 };
 
+const normalizeTreeNode = (value: unknown): RequestTreeNode | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as {
+    id?: unknown;
+    type?: unknown;
+    name?: unknown;
+    children?: unknown;
+    request?: unknown;
+  };
+
+  if (candidate.type === "folder") {
+    const folderId = typeof candidate.id === "string" ? candidate.id : crypto.randomUUID();
+    const folderName = typeof candidate.name === "string" && candidate.name.trim() ? candidate.name : "New Folder";
+    const children = Array.isArray(candidate.children)
+      ? candidate.children
+          .map((entry) => normalizeTreeNode(entry))
+          .filter((entry): entry is RequestTreeNode => entry !== null)
+      : [];
+
+    return {
+      id: folderId,
+      type: "folder",
+      name: folderName,
+      children,
+    };
+  }
+
+  const baseRequest =
+    candidate.type === "request" && candidate.request !== undefined
+      ? normalizeRequest(candidate.request)
+      : normalizeRequest(value);
+  const requestId = typeof candidate.id === "string" ? candidate.id : baseRequest.id;
+
+  return {
+    id: requestId,
+    type: "request",
+    request: {
+      ...baseRequest,
+      id: requestId,
+    },
+  };
+};
+
+const normalizeTree = (value: unknown): RequestTreeNode[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => normalizeTreeNode(entry))
+    .filter((entry): entry is RequestTreeNode => entry !== null);
+};
+
 const normalizeCollection = (value: unknown): Collection | null => {
-  const candidate = typeof value === "object" && value ? (value as Partial<Collection>) : null;
+  const candidate = typeof value === "object" && value ? (value as Record<string, unknown>) : null;
 
   if (!candidate || typeof candidate.id !== "string" || typeof candidate.name !== "string") {
     return null;
   }
 
-  const normalizedRequests = Array.isArray(candidate.requests)
-    ? candidate.requests.map((request) => normalizeRequest(request))
-    : [];
+  const sourceTree = Array.isArray(candidate.requestTree)
+    ? candidate.requestTree
+    : Array.isArray(candidate.requests)
+      ? candidate.requests
+      : [];
 
   return {
     id: candidate.id,
     name: candidate.name,
     createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : new Date().toISOString(),
-    requests: normalizedRequests,
+    requestTree: normalizeTree(sourceTree),
   };
 };
+
+export const flattenRequestTree = (nodes: RequestTreeNode[]): ApiRequest[] => {
+  const result: ApiRequest[] = [];
+
+  const walk = (items: RequestTreeNode[]) => {
+    for (const item of items) {
+      if (item.type === "request") {
+        result.push(item.request);
+      } else {
+        walk(item.children);
+      }
+    }
+  };
+
+  walk(nodes);
+  return result;
+};
+
+export const countRequestsInTree = (nodes: RequestTreeNode[]) => flattenRequestTree(nodes).length;
 
 export const loadCollections = (): Collection[] => {
   if (typeof window === "undefined") {

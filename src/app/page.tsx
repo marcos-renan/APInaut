@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState, useSyncExternalStore } from "react";
 import {
+  countRequestsInTree,
   getCollectionsServerSnapshot,
   getCollectionsSnapshot,
   saveCollections,
@@ -32,7 +33,7 @@ export default function Home() {
         id: crypto.randomUUID(),
         name: cleanName,
         createdAt: new Date().toISOString(),
-        requests: [],
+        requestTree: [],
       },
       ...collections,
     ]);
@@ -62,26 +63,30 @@ export default function Home() {
             </div>
           )}
 
-          {collections.map((collection) => (
-            <Link
-              key={collection.id}
-              href={`/collections/${collection.id}`}
-              className="block rounded-xl border border-white/10 bg-[#1a1728] p-4 text-white transition hover:border-violet-300/40 hover:bg-[#221f33]"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold">{collection.name}</h2>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Criada em {new Date(collection.createdAt).toLocaleString("pt-BR")}
-                  </p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {collection.requests.length} requisicao(oes)
-                  </p>
+          {collections.map((collection) => {
+            const requestCount = countRequestsInTree(collection.requestTree);
+
+            return (
+              <Link
+                key={collection.id}
+                href={`/collections/${collection.id}`}
+                className="block rounded-xl border border-white/10 bg-[#1a1728] p-4 text-white transition hover:border-violet-300/40 hover:bg-[#221f33]"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold">{collection.name}</h2>
+                    <p className="mt-1 text-xs text-zinc-400">
+                      Criada em {new Date(collection.createdAt).toLocaleString("pt-BR")}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {requestCount} requisicao(oes)
+                    </p>
+                  </div>
+                  <span className="text-sm text-zinc-300">Abrir</span>
                 </div>
-                <span className="text-sm text-zinc-300">Abrir</span>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </section>
       </div>
 
