@@ -2564,7 +2564,7 @@ export default function CollectionDetailsPage() {
                   )}
 
                   {requestTab === "script" && (
-                    <div className="space-y-3 overflow-auto pr-1">
+                    <div className="space-y-3 xl:flex xl:h-full xl:flex-col xl:space-y-2">
                       <div className="flex gap-2">
                         <button
                           type="button"
@@ -2590,53 +2590,30 @@ export default function CollectionDetailsPage() {
                         </button>
                       </div>
 
-                      {scriptTab === "pre-request" && (
-                        <textarea
-                          value={activeRequest.preRequestScript}
-                          onChange={(event) =>
-                            handleTemplateTextFieldChange(event, (nextValue) =>
-                              updateActiveRequest((request) => ({
-                                ...request,
-                                preRequestScript: nextValue,
-                              })),
-                            )
-                          }
-                          onKeyDown={(event) =>
-                            handleTemplateTextFieldKeyDown(event, activeRequest.preRequestScript, (nextValue) =>
-                              updateActiveRequest((request) => ({
-                                ...request,
-                                preRequestScript: nextValue,
-                              })),
-                            )
-                          }
-                          className="h-[280px] w-full rounded-lg border border-white/15 bg-[#121025] p-3 text-sm font-mono outline-none ring-violet-400 transition focus:ring-2"
-                          placeholder="// context.request.method = 'POST';"
-                        />
-                      )}
-
-                      {scriptTab === "after-response" && (
-                        <textarea
-                          value={activeRequest.afterResponseScript}
-                          onChange={(event) =>
-                            handleTemplateTextFieldChange(event, (nextValue) =>
-                              updateActiveRequest((request) => ({
-                                ...request,
-                                afterResponseScript: nextValue,
-                              })),
-                            )
-                          }
-                          onKeyDown={(event) =>
-                            handleTemplateTextFieldKeyDown(event, activeRequest.afterResponseScript, (nextValue) =>
-                              updateActiveRequest((request) => ({
-                                ...request,
-                                afterResponseScript: nextValue,
-                              })),
-                            )
-                          }
-                          className="h-[280px] w-full rounded-lg border border-white/15 bg-[#121025] p-3 text-sm font-mono outline-none ring-violet-400 transition focus:ring-2"
-                          placeholder="// console.log(context.response.status);"
-                        />
-                      )}
+                      <CodeEditor
+                        value={
+                          scriptTab === "pre-request"
+                            ? activeRequest.preRequestScript
+                            : activeRequest.afterResponseScript
+                        }
+                        onChange={(nextScript) =>
+                          updateActiveRequest((request) =>
+                            scriptTab === "pre-request"
+                              ? { ...request, preRequestScript: nextScript }
+                              : { ...request, afterResponseScript: nextScript },
+                          )
+                        }
+                        language="javascript"
+                        enableTemplateAutocomplete
+                        templateVariables={templateVariableOptions}
+                        height={280}
+                        className="xl:min-h-0 xl:flex-1"
+                        placeholder={
+                          scriptTab === "pre-request"
+                            ? "// apinaut.environment.set('baseUrl', 'http://localhost:8080');"
+                            : "// const json = apinaut.response.json();\n// apinaut.environment.set('token', json.data.accessToken);"
+                        }
+                      />
 
                       <div className="rounded-lg border border-white/10 bg-[#121025] p-3 text-xs text-zinc-300">
                         <p className="font-medium text-zinc-200">Atalhos de script:</p>

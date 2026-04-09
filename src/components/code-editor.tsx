@@ -9,6 +9,7 @@ import {
   startCompletion,
   type Completion,
 } from "@codemirror/autocomplete";
+import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
 import { EditorState, Prec } from "@codemirror/state";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
@@ -17,7 +18,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, placeholder as placeholderExtension } from "@codemirror/view";
 import { cn } from "@/lib/utils";
 
-type EditorLanguage = "json" | "text";
+type EditorLanguage = "json" | "javascript" | "text";
 
 type CodeEditorProps = {
   value: string;
@@ -188,6 +189,10 @@ export const CodeEditor = ({
       if (jsonColorPreset === "response") {
         nextExtensions.push(Prec.highest(syntaxHighlighting(responseJsonHighlight)));
       }
+    }
+
+    if (language === "javascript") {
+      nextExtensions.push(javascript());
     }
 
     if (placeholder) {
