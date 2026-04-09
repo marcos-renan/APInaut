@@ -35,6 +35,8 @@ export type EnvironmentVariable = {
   value: string;
 };
 
+export type GlobalVariable = EnvironmentVariable;
+
 export type Environment = {
   id: string;
   name: string;
@@ -65,6 +67,11 @@ export type Collection = {
   activeEnvironmentId: string | null;
 };
 
+export type GlobalEnvironmentsState = {
+  environments: Environment[];
+  activeEnvironmentId: string | null;
+};
+
 export type CollectionsExportPayload = {
   apinautExportVersion: number;
   exportedAt: string;
@@ -73,10 +80,23 @@ export type CollectionsExportPayload = {
 
 const STORAGE_KEY = "apinaut.collections";
 const COLLECTIONS_CHANGED_EVENT = "apinaut:collections-changed";
+const GLOBAL_VARIABLES_STORAGE_KEY = "apinaut.global-variables";
+const GLOBAL_VARIABLES_CHANGED_EVENT = "apinaut:global-variables-changed";
+const GLOBAL_ENVIRONMENTS_STORAGE_KEY = "apinaut.global-environments";
+const GLOBAL_ENVIRONMENTS_CHANGED_EVENT = "apinaut:global-environments-changed";
 const EMPTY_COLLECTIONS: Collection[] = [];
+const EMPTY_GLOBAL_VARIABLES: GlobalVariable[] = [];
+const EMPTY_GLOBAL_ENVIRONMENTS_STATE: GlobalEnvironmentsState = {
+  environments: [],
+  activeEnvironmentId: null,
+};
 
 let cachedRaw: string | null = null;
 let cachedCollections: Collection[] = EMPTY_COLLECTIONS;
+let cachedGlobalVariablesRaw: string | null = null;
+let cachedGlobalVariables: GlobalVariable[] = EMPTY_GLOBAL_VARIABLES;
+let cachedGlobalEnvironmentsRaw: string | null = null;
+let cachedGlobalEnvironmentsState: GlobalEnvironmentsState = EMPTY_GLOBAL_ENVIRONMENTS_STATE;
 
 const createRow = (seed?: Partial<KeyValueRow>): KeyValueRow => ({
   id: seed?.id ?? crypto.randomUUID(),
@@ -878,3 +898,175 @@ export const subscribeCollections = (callback: () => void) => {
 
 export const getCollectionsSnapshot = () => loadCollections();
 export const getCollectionsServerSnapshot = () => EMPTY_COLLECTIONS;
+
+const normalizeGlobalVariablesFromUnknown = (value: unknown): GlobalVariable[] => {
+  if (!Array.isArray(value)) {
+    return EMPTY_GLOBAL_VARIABLES;
+  }
+
+  return value.map((entry) =>
+    createEnvironmentVariable(
+      typeof entry === "object" && entry ? (entry as Partial<EnvironmentVariable>) : {},
+    ),
+  );
+};
+
+export const loadGlobalVariables = (): GlobalVariable[] => {
+  if (typeof window === "undefined") {
+    return EMPTY_GLOBAL_VARIABLES;
+  }
+
+  const stored = window.localStorage.getItem(GLOBAL_VARIABLES_STORAGE_KEY);
+
+  if (stored === cachedGlobalVariablesRaw) {
+    return cachedGlobalVariables;
+  }
+
+  if (!stored) {
+    cachedGlobalVariablesRaw = stored;
+    cachedGlobalVariables = EMPTY_GLOBAL_VARIABLES;
+    return cachedGlobalVariables;
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    const normalized = normalizeGlobalVariablesFromUnknown(parsed);
+    cachedGlobalVariablesRaw = stored;
+    cachedGlobalVariables = normalized;
+    return cachedGlobalVariables;
+  } catch {
+    cachedGlobalVariablesRaw = stored;
+    cachedGlobalVariables = EMPTY_GLOBAL_VARIABLES;
+    return cachedGlobalVariables;
+  }
+};
+
+export const saveGlobalVariables = (variables: GlobalVariable[]) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const serialized = JSON.stringify(variables);
+  window.localStorage.setItem(GLOBAL_VARIABLES_STORAGE_KEY, serialized);
+  cachedGlobalVariablesRaw = serialized;
+  cachedGlobalVariables = variables;
+  window.dispatchEvent(new Event(GLOBAL_VARIABLES_CHANGED_EVENT));
+};
+
+export const updateGlobalVariables = (updater: (current: GlobalVariable[]) => GlobalVariable[]) => {
+  const current = loadGlobalVariables();
+  const next = updater(current);
+  saveGlobalVariables(next);
+  return next;
+};
+
+export const subscribeGlobalVariables = (callback: () => void) => {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  const handler = () => callback();
+
+  window.addEventListener("storage", handler);
+  window.addEventListener(GLOBAL_VARIABLES_CHANGED_EVENT, handler);
+
+  return () => {
+    window.removeEventListener("storage", handler);
+    window.removeEventListener(GLOBAL_VARIABLES_CHANGED_EVENT, handler);
+  };
+};
+
+export const getGlobalVariablesSnapshot = () => loadGlobalVariables();
+export const getGlobalVariablesServerSnapshot = () => EMPTY_GLOBAL_VARIABLES;
+
+const normalizeGlobalEnvironmentsState = (value: unknown): GlobalEnvironmentsState => {
+  const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+
+  if (!candidate) {
+    return EMPTY_GLOBAL_ENVIRONMENTS_STATE;
+  }
+
+  const environments = normalizeEnvironments(candidate.environments);
+  const activeEnvironmentId =
+    typeof candidate.activeEnvironmentId === "string" || candidate.activeEnvironmentId === null
+      ? candidate.activeEnvironmentId
+      : null;
+  const hasActive = activeEnvironmentId
+    ? environments.some((environment) => environment.id === activeEnvironmentId)
+    : false;
+
+  return {
+    environments,
+    activeEnvironmentId: hasActive ? activeEnvironmentId : environments[0]?.id ?? null,
+  };
+};
+
+export const loadGlobalEnvironmentsState = (): GlobalEnvironmentsState => {
+  if (typeof window === "undefined") {
+    return EMPTY_GLOBAL_ENVIRONMENTS_STATE;
+  }
+
+  const stored = window.localStorage.getItem(GLOBAL_ENVIRONMENTS_STORAGE_KEY);
+
+  if (stored === cachedGlobalEnvironmentsRaw) {
+    return cachedGlobalEnvironmentsState;
+  }
+
+  if (!stored) {
+    cachedGlobalEnvironmentsRaw = stored;
+    cachedGlobalEnvironmentsState = EMPTY_GLOBAL_ENVIRONMENTS_STATE;
+    return cachedGlobalEnvironmentsState;
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    const normalized = normalizeGlobalEnvironmentsState(parsed);
+    cachedGlobalEnvironmentsRaw = stored;
+    cachedGlobalEnvironmentsState = normalized;
+    return cachedGlobalEnvironmentsState;
+  } catch {
+    cachedGlobalEnvironmentsRaw = stored;
+    cachedGlobalEnvironmentsState = EMPTY_GLOBAL_ENVIRONMENTS_STATE;
+    return cachedGlobalEnvironmentsState;
+  }
+};
+
+export const saveGlobalEnvironmentsState = (state: GlobalEnvironmentsState) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const serialized = JSON.stringify(state);
+  window.localStorage.setItem(GLOBAL_ENVIRONMENTS_STORAGE_KEY, serialized);
+  cachedGlobalEnvironmentsRaw = serialized;
+  cachedGlobalEnvironmentsState = state;
+  window.dispatchEvent(new Event(GLOBAL_ENVIRONMENTS_CHANGED_EVENT));
+};
+
+export const updateGlobalEnvironmentsState = (
+  updater: (current: GlobalEnvironmentsState) => GlobalEnvironmentsState,
+) => {
+  const current = loadGlobalEnvironmentsState();
+  const next = updater(current);
+  saveGlobalEnvironmentsState(next);
+  return next;
+};
+
+export const subscribeGlobalEnvironmentsState = (callback: () => void) => {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  const handler = () => callback();
+
+  window.addEventListener("storage", handler);
+  window.addEventListener(GLOBAL_ENVIRONMENTS_CHANGED_EVENT, handler);
+
+  return () => {
+    window.removeEventListener("storage", handler);
+    window.removeEventListener(GLOBAL_ENVIRONMENTS_CHANGED_EVENT, handler);
+  };
+};
+
+export const getGlobalEnvironmentsStateSnapshot = () => loadGlobalEnvironmentsState();
+export const getGlobalEnvironmentsStateServerSnapshot = () => EMPTY_GLOBAL_ENVIRONMENTS_STATE;

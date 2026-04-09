@@ -34,14 +34,19 @@ import {
   Collection,
   Environment,
   EnvironmentVariable,
+  GlobalEnvironmentsState,
   RequestTreeFolderNode,
   RequestTreeNode,
   KeyValueRow,
   createDefaultRequest,
   getCollectionsServerSnapshot,
   getCollectionsSnapshot,
+  getGlobalEnvironmentsStateServerSnapshot,
+  getGlobalEnvironmentsStateSnapshot,
   subscribeCollections,
+  subscribeGlobalEnvironmentsState,
   updateCollections,
+  updateGlobalEnvironmentsState,
 } from "@/lib/collections";
 
 type RequestTab = "params" | "body" | "auth" | "headers" | "script";
@@ -770,6 +775,11 @@ export default function CollectionDetailsPage() {
     getCollectionsSnapshot,
     getCollectionsServerSnapshot,
   );
+  const globalEnvironmentState = useSyncExternalStore(
+    subscribeGlobalEnvironmentsState,
+    getGlobalEnvironmentsStateSnapshot,
+    getGlobalEnvironmentsStateServerSnapshot,
+  );
   const [isMounted, setIsMounted] = useState(false);
 
   const collectionId = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -789,8 +799,11 @@ export default function CollectionDetailsPage() {
   const [scriptError, setScriptError] = useState<string | null>(null);
   const [result, setResult] = useState<RequestExecutionResult | null>(null);
   const [isEnvironmentModalOpen, setIsEnvironmentModalOpen] = useState(false);
+  const [environmentModalScope, setEnvironmentModalScope] = useState<"local" | "global">("local");
   const [newEnvironmentName, setNewEnvironmentName] = useState("");
+  const [newGlobalEnvironmentName, setNewGlobalEnvironmentName] = useState("");
   const [editingEnvironmentId, setEditingEnvironmentId] = useState<string | null>(null);
+  const [editingGlobalEnvironmentId, setEditingGlobalEnvironmentId] = useState<string | null>(null);
   const [showBearerToken, setShowBearerToken] = useState(false);
   const [showBasicPassword, setShowBasicPassword] = useState(false);
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
@@ -971,6 +984,10 @@ export default function CollectionDetailsPage() {
 
   const requestTree = useMemo(() => collection?.requestTree ?? [], [collection]);
   const environments = useMemo(() => collection?.environments ?? [], [collection]);
+  const globalEnvironments = useMemo(
+    () => globalEnvironmentState.environments ?? [],
+    [globalEnvironmentState],
+  );
   const activeEnvironment = useMemo(
     () =>
       collection?.activeEnvironmentId
@@ -978,33 +995,39 @@ export default function CollectionDetailsPage() {
         : null,
     [collection, environments],
   );
-  const templateVariableOptions = useMemo(() => {
-    if (!activeEnvironment) {
-      return [];
+  const activeGlobalEnvironment = useMemo(
+    () =>
+      globalEnvironmentState.activeEnvironmentId
+        ? globalEnvironments.find(
+            (environment) => environment.id === globalEnvironmentState.activeEnvironmentId,
+          ) ?? null
+        : null,
+    [globalEnvironmentState.activeEnvironmentId, globalEnvironments],
+  );
+  const activeGlobalTemplateVariables = useMemo(() => {
+    if (!activeGlobalEnvironment) {
+      return {} as Record<string, string>;
     }
 
-    const seen = new Set<string>();
-    const options: string[] = [];
+    const variableMap: Record<string, string> = {};
 
-    for (const variable of activeEnvironment.variables) {
+    for (const variable of activeGlobalEnvironment.variables) {
       if (!variable.enabled) {
         continue;
       }
 
       const key = variable.key.trim();
 
-      if (!key || seen.has(key)) {
+      if (!key) {
         continue;
       }
 
-      seen.add(key);
-      options.push(key);
+      variableMap[key] = variable.value;
     }
 
-    return options;
-  }, [activeEnvironment]);
-
-  const activeTemplateVariables = useMemo(() => {
+    return variableMap;
+  }, [activeGlobalEnvironment]);
+  const activeLocalTemplateVariables = useMemo(() => {
     if (!activeEnvironment) {
       return {} as Record<string, string>;
     }
@@ -1018,7 +1041,7 @@ export default function CollectionDetailsPage() {
 
       const key = variable.key.trim();
 
-      if (!key || variableMap[key] !== undefined) {
+      if (!key) {
         continue;
       }
 
@@ -1027,6 +1050,40 @@ export default function CollectionDetailsPage() {
 
     return variableMap;
   }, [activeEnvironment]);
+  const templateVariableOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: string[] = [];
+
+    for (const source of [activeGlobalEnvironment, activeEnvironment]) {
+      if (!source) {
+        continue;
+      }
+
+      for (const variable of source.variables) {
+        if (!variable.enabled) {
+          continue;
+        }
+
+        const key = variable.key.trim();
+
+        if (!key || seen.has(key)) {
+          continue;
+        }
+
+        seen.add(key);
+        options.push(key);
+      }
+    }
+
+    return options;
+  }, [activeEnvironment, activeGlobalEnvironment]);
+
+  const activeTemplateVariables = useMemo(() => {
+    return {
+      ...activeGlobalTemplateVariables,
+      ...activeLocalTemplateVariables,
+    };
+  }, [activeGlobalTemplateVariables, activeLocalTemplateVariables]);
 
   useEffect(() => {
     if (!isEnvironmentModalOpen) {
@@ -1049,6 +1106,30 @@ export default function CollectionDetailsPage() {
       setEditingEnvironmentId(environments[0].id);
     }
   }, [editingEnvironmentId, environments, isEnvironmentModalOpen]);
+
+  useEffect(() => {
+    if (!isEnvironmentModalOpen) {
+      return;
+    }
+
+    if (globalEnvironments.length === 0) {
+      setEditingGlobalEnvironmentId(null);
+      return;
+    }
+
+    if (!editingGlobalEnvironmentId) {
+      setEditingGlobalEnvironmentId(globalEnvironments[0].id);
+      return;
+    }
+
+    const exists = globalEnvironments.some(
+      (environment) => environment.id === editingGlobalEnvironmentId,
+    );
+
+    if (!exists) {
+      setEditingGlobalEnvironmentId(globalEnvironments[0].id);
+    }
+  }, [editingGlobalEnvironmentId, globalEnvironments, isEnvironmentModalOpen]);
 
   useEffect(() => {
     const firstRequestId = findFirstRequestId(requestTree);
@@ -1098,6 +1179,31 @@ export default function CollectionDetailsPage() {
     }
   }, [collection, collectionId]);
 
+  useEffect(() => {
+    if (globalEnvironments.length === 0) {
+      return;
+    }
+
+    if (!globalEnvironmentState.activeEnvironmentId) {
+      updateGlobalEnvironmentsState((current) => ({
+        ...current,
+        activeEnvironmentId: current.environments[0]?.id ?? null,
+      }));
+      return;
+    }
+
+    const exists = globalEnvironments.some(
+      (environment) => environment.id === globalEnvironmentState.activeEnvironmentId,
+    );
+
+    if (!exists) {
+      updateGlobalEnvironmentsState((current) => ({
+        ...current,
+        activeEnvironmentId: current.environments[0]?.id ?? null,
+      }));
+    }
+  }, [globalEnvironmentState.activeEnvironmentId, globalEnvironments]);
+
   const activeRequest = useMemo(
     () => findRequestById(requestTree, activeRequestId),
     [requestTree, activeRequestId],
@@ -1144,6 +1250,13 @@ export default function CollectionDetailsPage() {
       editingEnvironmentId ? environments.find((environment) => environment.id === editingEnvironmentId) ?? null : null,
     [editingEnvironmentId, environments],
   );
+  const editingGlobalEnvironment = useMemo(
+    () =>
+      editingGlobalEnvironmentId
+        ? globalEnvironments.find((environment) => environment.id === editingGlobalEnvironmentId) ?? null
+        : null,
+    [editingGlobalEnvironmentId, globalEnvironments],
+  );
 
   const updateCurrentCollection = (updater: (currentCollection: Collection) => Collection) => {
     if (!collectionId) {
@@ -1188,6 +1301,35 @@ export default function CollectionDetailsPage() {
   const setActiveEnvironmentId = (environmentId: string | null) => {
     updateCurrentCollection((currentCollection) => ({
       ...currentCollection,
+      activeEnvironmentId: environmentId,
+    }));
+  };
+
+  const updateGlobalEnvironmentState = (
+    updater: (state: GlobalEnvironmentsState) => GlobalEnvironmentsState,
+  ) => {
+    updateGlobalEnvironmentsState((current) => updater(current));
+  };
+
+  const updateGlobalEnvironments = (updater: (environments: Environment[]) => Environment[]) => {
+    updateGlobalEnvironmentState((current) => {
+      const nextEnvironments = updater(current.environments);
+      const stillExists =
+        current.activeEnvironmentId &&
+        nextEnvironments.some((environment) => environment.id === current.activeEnvironmentId);
+
+      return {
+        environments: nextEnvironments,
+        activeEnvironmentId: stillExists
+          ? current.activeEnvironmentId
+          : nextEnvironments[0]?.id ?? null,
+      };
+    });
+  };
+
+  const setActiveGlobalEnvironmentId = (environmentId: string | null) => {
+    updateGlobalEnvironmentState((current) => ({
+      ...current,
       activeEnvironmentId: environmentId,
     }));
   };
@@ -1478,13 +1620,16 @@ export default function CollectionDetailsPage() {
   };
 
   const openEnvironmentModal = () => {
+    setEnvironmentModalScope("local");
     setEditingEnvironmentId(activeEnvironment?.id ?? environments[0]?.id ?? null);
+    setEditingGlobalEnvironmentId(activeGlobalEnvironment?.id ?? globalEnvironments[0]?.id ?? null);
     setIsEnvironmentModalOpen(true);
   };
 
   const closeEnvironmentModal = () => {
     setIsEnvironmentModalOpen(false);
     setNewEnvironmentName("");
+    setNewGlobalEnvironmentName("");
   };
 
   const createEnvironment = () => {
@@ -1549,6 +1694,75 @@ export default function CollectionDetailsPage() {
 
   const removeEnvironmentVariable = (environmentId: string, variableId: string) => {
     updateEnvironmentVariables(environmentId, (variables) =>
+      variables.filter((variable) => variable.id !== variableId),
+    );
+  };
+
+  const createGlobalEnvironment = () => {
+    const fallbackName = `Global ${globalEnvironments.length + 1}`;
+    const nextName = newGlobalEnvironmentName.trim() || fallbackName;
+    const environment = createEnvironmentItem(nextName);
+
+    updateGlobalEnvironments((current) => [environment, ...current]);
+    setActiveGlobalEnvironmentId(environment.id);
+    setEditingGlobalEnvironmentId(environment.id);
+    setNewGlobalEnvironmentName("");
+  };
+
+  const deleteGlobalEnvironment = (environmentId: string) => {
+    updateGlobalEnvironments((current) =>
+      current.filter((environment) => environment.id !== environmentId),
+    );
+
+    if (editingGlobalEnvironmentId === environmentId) {
+      setEditingGlobalEnvironmentId(null);
+    }
+  };
+
+  const updateGlobalEnvironmentName = (environmentId: string, name: string) => {
+    updateGlobalEnvironments((current) =>
+      current.map((environment) =>
+        environment.id === environmentId ? { ...environment, name } : environment,
+      ),
+    );
+  };
+
+  const updateGlobalEnvironmentVariables = (
+    environmentId: string,
+    updater: (variables: EnvironmentVariable[]) => EnvironmentVariable[],
+  ) => {
+    updateGlobalEnvironments((current) =>
+      current.map((environment) =>
+        environment.id === environmentId
+          ? {
+              ...environment,
+              variables: updater(environment.variables),
+            }
+          : environment,
+      ),
+    );
+  };
+
+  const addGlobalEnvironmentVariable = (environmentId: string) => {
+    updateGlobalEnvironmentVariables(environmentId, (variables) => [
+      ...variables,
+      createEnvironmentVariableRow(),
+    ]);
+  };
+
+  const updateGlobalEnvironmentVariable = (
+    environmentId: string,
+    variableId: string,
+    field: keyof EnvironmentVariable,
+    value: string | boolean,
+  ) => {
+    updateGlobalEnvironmentVariables(environmentId, (variables) =>
+      variables.map((variable) => (variable.id === variableId ? { ...variable, [field]: value } : variable)),
+    );
+  };
+
+  const removeGlobalEnvironmentVariable = (environmentId: string, variableId: string) => {
+    updateGlobalEnvironmentVariables(environmentId, (variables) =>
       variables.filter((variable) => variable.id !== variableId),
     );
   };
@@ -1882,7 +2096,13 @@ export default function CollectionDetailsPage() {
     setRequestError(null);
     setScriptError(null);
     const pendingEnvironmentChanges = new Map<string, string | null>();
-    const runtimeEnvironmentVariables: Record<string, string> = { ...activeTemplateVariables };
+    const pendingGlobalEnvironmentChanges = new Map<string, string | null>();
+    const runtimeLocalVariables: Record<string, string> = { ...activeLocalTemplateVariables };
+    const runtimeGlobalVariables: Record<string, string> = { ...activeGlobalTemplateVariables };
+    const getRuntimeTemplateVariables = () => ({
+      ...runtimeGlobalVariables,
+      ...runtimeLocalVariables,
+    });
 
     const normalizeVariableKey = (key: unknown) => String(key ?? "").trim();
 
@@ -1894,7 +2114,7 @@ export default function CollectionDetailsPage() {
       }
 
       const normalizedValue = value === undefined || value === null ? "" : String(value);
-      runtimeEnvironmentVariables[normalizedKey] = normalizedValue;
+      runtimeLocalVariables[normalizedKey] = normalizedValue;
       pendingEnvironmentChanges.set(normalizedKey, normalizedValue);
     };
 
@@ -1905,13 +2125,41 @@ export default function CollectionDetailsPage() {
         return;
       }
 
-      delete runtimeEnvironmentVariables[normalizedKey];
+      delete runtimeLocalVariables[normalizedKey];
       pendingEnvironmentChanges.set(normalizedKey, null);
     };
 
     const getEnvironmentVariable = (key: unknown) => {
       const normalizedKey = normalizeVariableKey(key);
-      return normalizedKey ? runtimeEnvironmentVariables[normalizedKey] ?? null : null;
+      return normalizedKey ? runtimeLocalVariables[normalizedKey] ?? null : null;
+    };
+
+    const setGlobalEnvironmentVariable = (key: unknown, value: unknown) => {
+      const normalizedKey = normalizeVariableKey(key);
+
+      if (!normalizedKey) {
+        return;
+      }
+
+      const normalizedValue = value === undefined || value === null ? "" : String(value);
+      runtimeGlobalVariables[normalizedKey] = normalizedValue;
+      pendingGlobalEnvironmentChanges.set(normalizedKey, normalizedValue);
+    };
+
+    const unsetGlobalEnvironmentVariable = (key: unknown) => {
+      const normalizedKey = normalizeVariableKey(key);
+
+      if (!normalizedKey) {
+        return;
+      }
+
+      delete runtimeGlobalVariables[normalizedKey];
+      pendingGlobalEnvironmentChanges.set(normalizedKey, null);
+    };
+
+    const getGlobalEnvironmentVariable = (key: unknown) => {
+      const normalizedKey = normalizeVariableKey(key);
+      return normalizedKey ? runtimeGlobalVariables[normalizedKey] ?? null : null;
     };
 
     const persistEnvironmentChanges = () => {
@@ -1991,8 +2239,84 @@ export default function CollectionDetailsPage() {
       pendingEnvironmentChanges.clear();
     };
 
+    const persistGlobalEnvironmentChanges = () => {
+      if (pendingGlobalEnvironmentChanges.size === 0) {
+        return;
+      }
+
+      updateGlobalEnvironmentState((currentState) => {
+        const nextEnvironments = [...currentState.environments];
+        let nextActiveEnvironmentId = currentState.activeEnvironmentId;
+        let targetEnvironmentIndex = nextActiveEnvironmentId
+          ? nextEnvironments.findIndex((environment) => environment.id === nextActiveEnvironmentId)
+          : -1;
+
+        if (targetEnvironmentIndex < 0) {
+          const fallbackEnvironment = createEnvironmentItem("Global");
+          nextEnvironments.unshift(fallbackEnvironment);
+          targetEnvironmentIndex = 0;
+          nextActiveEnvironmentId = fallbackEnvironment.id;
+        }
+
+        const targetEnvironment = nextEnvironments[targetEnvironmentIndex];
+        let nextVariables = [...targetEnvironment.variables];
+
+        pendingGlobalEnvironmentChanges.forEach((nextValue, key) => {
+          const normalizedKey = key.trim();
+
+          if (!normalizedKey) {
+            return;
+          }
+
+          const variableIndex = nextVariables.findIndex(
+            (variable) => variable.key.trim() === normalizedKey,
+          );
+
+          if (nextValue === null) {
+            if (variableIndex >= 0) {
+              nextVariables = nextVariables.filter((_, index) => index !== variableIndex);
+            }
+
+            return;
+          }
+
+          if (variableIndex >= 0) {
+            nextVariables[variableIndex] = {
+              ...nextVariables[variableIndex],
+              enabled: true,
+              key: normalizedKey,
+              value: nextValue,
+            };
+            return;
+          }
+
+          nextVariables = [
+            ...nextVariables,
+            {
+              ...createEnvironmentVariableRow(),
+              enabled: true,
+              key: normalizedKey,
+              value: nextValue,
+            },
+          ];
+        });
+
+        nextEnvironments[targetEnvironmentIndex] = {
+          ...targetEnvironment,
+          variables: nextVariables,
+        };
+
+        return {
+          environments: nextEnvironments,
+          activeEnvironmentId: nextActiveEnvironmentId,
+        };
+      });
+
+      pendingGlobalEnvironmentChanges.clear();
+    };
+
     try {
-      const resolvedRequest = resolveRequestWithEnvironment(activeRequest, runtimeEnvironmentVariables);
+      const resolvedRequest = resolveRequestWithEnvironment(activeRequest, getRuntimeTemplateVariables());
       const finalUrl = buildUrlWithParams(resolvedRequest.url.trim(), resolvedRequest.params);
 
       const payload: {
@@ -2016,7 +2340,14 @@ export default function CollectionDetailsPage() {
         get: (key: unknown) => getEnvironmentVariable(key),
         set: (key: unknown, value: unknown) => setEnvironmentVariable(key, value),
         unset: (key: unknown) => unsetEnvironmentVariable(key),
-        all: () => ({ ...runtimeEnvironmentVariables }),
+        all: () => ({ ...runtimeLocalVariables }),
+      };
+
+      const globalApi = {
+        get: (key: unknown) => getGlobalEnvironmentVariable(key),
+        set: (key: unknown, value: unknown) => setGlobalEnvironmentVariable(key, value),
+        unset: (key: unknown) => unsetGlobalEnvironmentVariable(key),
+        all: () => ({ ...runtimeGlobalVariables }),
       };
 
       const buildScriptBindings = (responsePayload: RequestExecutionResult | null) => {
@@ -2049,11 +2380,14 @@ export default function CollectionDetailsPage() {
             request: payload,
             response: responsePayload,
             environment: environmentApi,
+            global: globalApi,
           },
           apinaut: {
             request: payload,
             response: responseApi,
             environment: environmentApi,
+            global: globalApi,
+            globals: globalApi,
             variables: environmentApi,
           },
           insomnia: {
@@ -2066,6 +2400,7 @@ export default function CollectionDetailsPage() {
             },
             collectionVariables: environmentApi,
             environment: environmentApi,
+            globals: globalApi,
           },
         };
       };
@@ -2118,6 +2453,7 @@ export default function CollectionDetailsPage() {
       setResponseTab("body");
     } finally {
       persistEnvironmentChanges();
+      persistGlobalEnvironmentChanges();
       setIsSending(false);
     }
   };
@@ -2322,7 +2658,7 @@ export default function CollectionDetailsPage() {
           <h1 className="text-xl font-semibold">{collection.name}</h1>
 
           <div className="ml-auto flex items-center gap-2">
-            <div className="min-w-[220px]">
+            <div className="min-w-[180px]">
               <select
                 value={collection.activeEnvironmentId ?? ""}
                 onChange={(event) => setActiveEnvironmentId(event.target.value || null)}
@@ -2331,7 +2667,21 @@ export default function CollectionDetailsPage() {
                 <option value="">Sem ambiente</option>
                 {environments.map((environment) => (
                   <option key={environment.id} value={environment.id}>
-                    {environment.name}
+                    Local: {environment.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-[180px]">
+              <select
+                value={globalEnvironmentState.activeEnvironmentId ?? ""}
+                onChange={(event) => setActiveGlobalEnvironmentId(event.target.value || null)}
+                className="h-8 w-full rounded-md border border-white/15 bg-[#121025] px-2 text-xs text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+              >
+                <option value="">Sem global</option>
+                {globalEnvironments.map((environment) => (
+                  <option key={environment.id} value={environment.id}>
+                    Global: {environment.name}
                   </option>
                 ))}
               </select>
@@ -2773,6 +3123,7 @@ export default function CollectionDetailsPage() {
                         <p className="font-medium text-zinc-200">Atalhos de script:</p>
                         <p className="mt-1">`apinaut.response.json()` para ler JSON da resposta.</p>
                         <p>`apinaut.environment.set(&quot;token&quot;, &quot;...&quot;)` para salvar variavel no ambiente ativo.</p>
+                        <p>`apinaut.global.set(&quot;url_base&quot;, &quot;http://localhost:8080/&quot;)` para salvar no ambiente global ativo.</p>
                         <p className="mt-1 text-zinc-400">Tambem funciona com compatibilidade: `insomnia.collectionVariables.set(...)`.</p>
                       </div>
                     </div>
@@ -3004,80 +3355,289 @@ export default function CollectionDetailsPage() {
 
             <div className="grid min-h-[420px] gap-0 md:grid-cols-[260px_minmax(0,1fr)]">
               <aside className="border-r border-white/10 bg-[#121025] p-3">
-                <div className="space-y-2">
-                  <input
-                    value={newEnvironmentName}
-                    onChange={(event) => setNewEnvironmentName(event.target.value)}
-                    className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                    placeholder="Nome do ambiente"
-                  />
+                <div className="mb-3 grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={createEnvironment}
-                    className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
+                    onClick={() => setEnvironmentModalScope("local")}
+                    className={`h-8 rounded-md border text-xs font-medium transition ${
+                      environmentModalScope === "local"
+                        ? "border-violet-300/55 bg-violet-500/25 text-violet-100"
+                        : "border-white/15 bg-[#0e0b1c] text-zinc-300 hover:bg-white/10"
+                    }`}
                   >
-                    Criar ambiente
+                    Locais
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEnvironmentModalScope("global")}
+                    className={`h-8 rounded-md border text-xs font-medium transition ${
+                      environmentModalScope === "global"
+                        ? "border-violet-300/55 bg-violet-500/25 text-violet-100"
+                        : "border-white/15 bg-[#0e0b1c] text-zinc-300 hover:bg-white/10"
+                    }`}
+                  >
+                    Globais
                   </button>
                 </div>
 
-                <div className="mt-3 space-y-1">
-                  {environments.length === 0 && (
-                    <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
-                      Nenhum ambiente criado.
-                    </p>
-                  )}
-
-                  {environments.map((environment) => {
-                    const isSelected = editingEnvironmentId === environment.id;
-                    const isActive = collection.activeEnvironmentId === environment.id;
-
-                    return (
-                      <button
-                        key={environment.id}
-                        type="button"
-                        onClick={() => setEditingEnvironmentId(environment.id)}
-                        className={`flex w-full items-center justify-between rounded-md border px-2 py-2 text-left text-sm transition ${
-                          isSelected
-                            ? "border-violet-300/55 bg-violet-500/20"
-                            : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
-                        }`}
-                      >
-                        <span className="truncate text-zinc-100">{environment.name}</span>
-                        {isActive && (
-                          <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-                            ativo
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </aside>
-
-              <section className="flex min-h-0 flex-col p-4">
-                {editingEnvironment ? (
+                {environmentModalScope === "local" ? (
                   <>
-                    <div className="grid gap-2 border-b border-white/10 pb-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <div className="space-y-2">
                       <input
-                        value={editingEnvironment.name}
-                        onChange={(event) => updateEnvironmentName(editingEnvironment.id, event.target.value)}
-                        className="h-10 rounded-md border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                        placeholder="Nome do ambiente"
+                        value={newEnvironmentName}
+                        onChange={(event) => setNewEnvironmentName(event.target.value)}
+                        className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                        placeholder="Nome do ambiente local"
                       />
                       <button
                         type="button"
-                        onClick={() => setActiveEnvironmentId(editingEnvironment.id)}
+                        onClick={createEnvironment}
+                        className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
+                      >
+                        Criar ambiente local
+                      </button>
+                    </div>
+
+                    <div className="mt-3 space-y-1">
+                      {environments.length === 0 && (
+                        <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
+                          Nenhum ambiente local criado.
+                        </p>
+                      )}
+
+                      {environments.map((environment) => {
+                        const isSelected = editingEnvironmentId === environment.id;
+                        const isActive = collection.activeEnvironmentId === environment.id;
+
+                        return (
+                          <button
+                            key={environment.id}
+                            type="button"
+                            onClick={() => setEditingEnvironmentId(environment.id)}
+                            className={`flex w-full items-center justify-between rounded-md border px-2 py-2 text-left text-sm transition ${
+                              isSelected
+                                ? "border-violet-300/55 bg-violet-500/20"
+                                : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
+                            }`}
+                          >
+                            <span className="truncate text-zinc-100">{environment.name}</span>
+                            {isActive && (
+                              <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
+                                ativo
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <input
+                        value={newGlobalEnvironmentName}
+                        onChange={(event) => setNewGlobalEnvironmentName(event.target.value)}
+                        className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                        placeholder="Nome do ambiente global"
+                      />
+                      <button
+                        type="button"
+                        onClick={createGlobalEnvironment}
+                        className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
+                      >
+                        Criar ambiente global
+                      </button>
+                    </div>
+
+                    <div className="mt-3 space-y-1">
+                      {globalEnvironments.length === 0 && (
+                        <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
+                          Nenhum ambiente global criado.
+                        </p>
+                      )}
+
+                      {globalEnvironments.map((environment) => {
+                        const isSelected = editingGlobalEnvironmentId === environment.id;
+                        const isActive = globalEnvironmentState.activeEnvironmentId === environment.id;
+
+                        return (
+                          <button
+                            key={environment.id}
+                            type="button"
+                            onClick={() => setEditingGlobalEnvironmentId(environment.id)}
+                            className={`flex w-full items-center justify-between rounded-md border px-2 py-2 text-left text-sm transition ${
+                              isSelected
+                                ? "border-violet-300/55 bg-violet-500/20"
+                                : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
+                            }`}
+                          >
+                            <span className="truncate text-zinc-100">{environment.name}</span>
+                            {isActive && (
+                              <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
+                                ativo
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </aside>
+
+              <section className="flex min-h-0 flex-col p-4">
+                {environmentModalScope === "local" ? (
+                  editingEnvironment ? (
+                    <>
+                      <div className="grid gap-2 border-b border-white/10 pb-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                        <input
+                          value={editingEnvironment.name}
+                          onChange={(event) => updateEnvironmentName(editingEnvironment.id, event.target.value)}
+                          className="h-10 rounded-md border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                          placeholder="Nome do ambiente local"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setActiveEnvironmentId(editingEnvironment.id)}
+                          className={`h-10 rounded-md border px-3 text-sm transition ${
+                            collection.activeEnvironmentId === editingEnvironment.id
+                              ? "border-emerald-300/55 bg-emerald-500/20 text-emerald-100"
+                              : "border-white/20 text-zinc-200 hover:bg-white/10"
+                          }`}
+                        >
+                          {collection.activeEnvironmentId === editingEnvironment.id ? "Ambiente local ativo" : "Ativar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteEnvironment(editingEnvironment.id)}
+                          className="h-10 rounded-md border border-rose-300/45 bg-rose-500/15 px-3 text-sm text-rose-100 transition hover:bg-rose-500/25"
+                        >
+                          Deletar
+                        </button>
+                      </div>
+
+                      <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
+                        <div className="mb-2 hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
+                          <span>Ativo</span>
+                          <span>Variavel</span>
+                          <span>Valor</span>
+                          <span>Acao</span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {editingEnvironment.variables.map((variable) => (
+                            <div
+                              key={variable.id}
+                              className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateEnvironmentVariable(
+                                    editingEnvironment.id,
+                                    variable.id,
+                                    "enabled",
+                                    !variable.enabled,
+                                  )
+                                }
+                                className={`flex h-10 items-center justify-center rounded-lg border transition ${
+                                  variable.enabled
+                                    ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
+                                    : "border-white/15 bg-[#121025] hover:bg-white/10"
+                                }`}
+                                aria-pressed={variable.enabled}
+                                aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
+                              >
+                                <span
+                                  className={`relative h-5 w-9 rounded-full transition ${
+                                    variable.enabled ? "bg-emerald-500" : "bg-zinc-700"
+                                  }`}
+                                >
+                                  <span
+                                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                                      variable.enabled ? "translate-x-4" : ""
+                                    }`}
+                                  />
+                                </span>
+                              </button>
+                              <input
+                                value={variable.key}
+                                onChange={(event) =>
+                                  updateEnvironmentVariable(
+                                    editingEnvironment.id,
+                                    variable.id,
+                                    "key",
+                                    event.target.value,
+                                  )
+                                }
+                                className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                                placeholder="api_host"
+                              />
+                              <input
+                                value={variable.value}
+                                onChange={(event) =>
+                                  updateEnvironmentVariable(
+                                    editingEnvironment.id,
+                                    variable.id,
+                                    "value",
+                                    event.target.value,
+                                  )
+                                }
+                                className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                                placeholder="http://localhost:8080"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeEnvironmentVariable(editingEnvironment.id, variable.id)}
+                                className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 text-zinc-200 transition hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+                                aria-label="Remover variavel"
+                                title="Remover variavel"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => addEnvironmentVariable(editingEnvironment.id)}
+                          className="mt-3 rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
+                        >
+                          + Adicionar variavel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-zinc-400">Crie ou selecione um ambiente local para editar.</p>
+                  )
+                ) : editingGlobalEnvironment ? (
+                  <>
+                    <div className="grid gap-2 border-b border-white/10 pb-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                      <input
+                        value={editingGlobalEnvironment.name}
+                        onChange={(event) =>
+                          updateGlobalEnvironmentName(editingGlobalEnvironment.id, event.target.value)
+                        }
+                        className="h-10 rounded-md border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                        placeholder="Nome do ambiente global"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setActiveGlobalEnvironmentId(editingGlobalEnvironment.id)}
                         className={`h-10 rounded-md border px-3 text-sm transition ${
-                          collection.activeEnvironmentId === editingEnvironment.id
+                          globalEnvironmentState.activeEnvironmentId === editingGlobalEnvironment.id
                             ? "border-emerald-300/55 bg-emerald-500/20 text-emerald-100"
                             : "border-white/20 text-zinc-200 hover:bg-white/10"
                         }`}
                       >
-                        {collection.activeEnvironmentId === editingEnvironment.id ? "Ambiente ativo" : "Ativar"}
+                        {globalEnvironmentState.activeEnvironmentId === editingGlobalEnvironment.id
+                          ? "Ambiente global ativo"
+                          : "Ativar"}
                       </button>
                       <button
                         type="button"
-                        onClick={() => deleteEnvironment(editingEnvironment.id)}
+                        onClick={() => deleteGlobalEnvironment(editingGlobalEnvironment.id)}
                         className="h-10 rounded-md border border-rose-300/45 bg-rose-500/15 px-3 text-sm text-rose-100 transition hover:bg-rose-500/25"
                       >
                         Deletar
@@ -3093,7 +3653,7 @@ export default function CollectionDetailsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        {editingEnvironment.variables.map((variable) => (
+                        {editingGlobalEnvironment.variables.map((variable) => (
                           <div
                             key={variable.id}
                             className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
@@ -3101,8 +3661,8 @@ export default function CollectionDetailsPage() {
                             <button
                               type="button"
                               onClick={() =>
-                                updateEnvironmentVariable(
-                                  editingEnvironment.id,
+                                updateGlobalEnvironmentVariable(
+                                  editingGlobalEnvironment.id,
                                   variable.id,
                                   "enabled",
                                   !variable.enabled,
@@ -3131,8 +3691,8 @@ export default function CollectionDetailsPage() {
                             <input
                               value={variable.key}
                               onChange={(event) =>
-                                updateEnvironmentVariable(
-                                  editingEnvironment.id,
+                                updateGlobalEnvironmentVariable(
+                                  editingGlobalEnvironment.id,
                                   variable.id,
                                   "key",
                                   event.target.value,
@@ -3144,8 +3704,8 @@ export default function CollectionDetailsPage() {
                             <input
                               value={variable.value}
                               onChange={(event) =>
-                                updateEnvironmentVariable(
-                                  editingEnvironment.id,
+                                updateGlobalEnvironmentVariable(
+                                  editingGlobalEnvironment.id,
                                   variable.id,
                                   "value",
                                   event.target.value,
@@ -3156,7 +3716,9 @@ export default function CollectionDetailsPage() {
                             />
                             <button
                               type="button"
-                              onClick={() => removeEnvironmentVariable(editingEnvironment.id, variable.id)}
+                              onClick={() =>
+                                removeGlobalEnvironmentVariable(editingGlobalEnvironment.id, variable.id)
+                              }
                               className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 text-zinc-200 transition hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
                               aria-label="Remover variavel"
                               title="Remover variavel"
@@ -3169,7 +3731,7 @@ export default function CollectionDetailsPage() {
 
                       <button
                         type="button"
-                        onClick={() => addEnvironmentVariable(editingEnvironment.id)}
+                        onClick={() => addGlobalEnvironmentVariable(editingGlobalEnvironment.id)}
                         className="mt-3 rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
                       >
                         + Adicionar variavel
@@ -3177,7 +3739,7 @@ export default function CollectionDetailsPage() {
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-zinc-400">Crie ou selecione um ambiente para editar.</p>
+                  <p className="text-sm text-zinc-400">Crie ou selecione um ambiente global para editar.</p>
                 )}
               </section>
             </div>
