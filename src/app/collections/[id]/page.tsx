@@ -16,13 +16,14 @@ import {
 
 type RequestTab = "params" | "body" | "auth" | "headers" | "script";
 type ScriptTab = "pre-request" | "after-response";
-type ResponseTab = "body" | "headers";
+type ResponseTab = "body" | "headers" | "cookies";
 
 type RequestExecutionResult = {
   status: number;
   statusText: string;
   durationMs: number;
   headers: Record<string, string>;
+  cookies: string[];
   body: string;
   finalUrl: string;
   requestBytes: number;
@@ -429,6 +430,11 @@ export default function CollectionDetailsPage() {
     if (responseTab === "headers") {
       const headersContent = result ? JSON.stringify(result.headers, null, 2) : "";
       return errors.length ? [errors.join("\n\n"), headersContent].filter(Boolean).join("\n\n") : headersContent;
+    }
+
+    if (responseTab === "cookies") {
+      const cookiesContent = result ? result.cookies.join("\n") : "";
+      return errors.length ? [errors.join("\n\n"), cookiesContent].filter(Boolean).join("\n\n") : cookiesContent;
     }
 
     return errors.length
@@ -926,34 +932,6 @@ export default function CollectionDetailsPage() {
           </div>
 
           <section className="border-y border-white/10 bg-[#1a1728] p-5">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <h2 className="text-sm font-medium text-zinc-200">Resposta da API</h2>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setResponseTab("body")}
-                  className={`rounded-lg px-3 py-1.5 text-sm transition ${
-                    responseTab === "body"
-                      ? "bg-violet-500 text-white"
-                      : "bg-white/5 text-zinc-300 hover:bg-white/10"
-                  }`}
-                >
-                  Body
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setResponseTab("headers")}
-                  className={`rounded-lg px-3 py-1.5 text-sm transition ${
-                    responseTab === "headers"
-                      ? "bg-violet-500 text-white"
-                      : "bg-white/5 text-zinc-300 hover:bg-white/10"
-                  }`}
-                >
-                  Headers
-                </button>
-              </div>
-            </div>
-
             <div className="mb-3 grid grid-cols-3 gap-2">
               <div className="rounded-lg border border-white/10 bg-[#121025] p-2">
                 <p className="text-[11px] uppercase tracking-wide text-zinc-400">Status</p>
@@ -981,13 +959,36 @@ export default function CollectionDetailsPage() {
               </div>
             </div>
 
-            <pre
-              className={`h-[520px] overflow-auto rounded-lg border border-white/10 bg-[#121025] p-3 text-xs ${
-                hasResponseError ? "text-rose-300" : "text-zinc-100"
-              }`}
-            >
-              {responsePaneContent}
-            </pre>
+            <div className="overflow-hidden rounded-lg border border-white/10 bg-[#121025]">
+              <div className="flex items-center gap-1 border-b border-white/10 p-1">
+                {[
+                  { id: "body", label: "Body" },
+                  { id: "headers", label: "Headers" },
+                  { id: "cookies", label: "Cookies" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setResponseTab(tab.id as ResponseTab)}
+                    className={`rounded-md px-3 py-1.5 text-sm transition ${
+                      responseTab === tab.id
+                        ? "bg-violet-500 text-white"
+                        : "text-zinc-300 hover:bg-white/10"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <pre
+                className={`h-[486px] overflow-auto p-3 text-xs ${
+                  hasResponseError ? "text-rose-300" : "text-zinc-100"
+                }`}
+              >
+                {responsePaneContent}
+              </pre>
+            </div>
 
             {result && (
               <p className="mt-2 truncate text-xs text-zinc-500">URL final: {result.finalUrl}</p>

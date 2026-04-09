@@ -19,6 +19,7 @@ type UpstreamResult = {
   status: number;
   statusText: string;
   headers: Record<string, string>;
+  cookies: string[];
   body: string;
   finalUrl: string;
   effectiveUrl: string;
@@ -120,10 +121,19 @@ const runFetch = async (url: string, input: RequestInput): Promise<UpstreamResul
     headers[key] = value;
   });
 
+  const getSetCookie = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const cookies =
+    typeof getSetCookie === "function"
+      ? getSetCookie.call(response.headers).filter((cookie) => cookie.trim().length > 0)
+      : headers["set-cookie"]
+        ? [headers["set-cookie"]]
+        : [];
+
   return {
     status: response.status,
     statusText: response.statusText,
     headers,
+    cookies,
     body,
     finalUrl: response.url,
     effectiveUrl: url,
@@ -160,6 +170,11 @@ const runNodeLoopbackRequest = (parsed: URL, connectHost: string, input: Request
       res.on("end", () => {
         const body = Buffer.concat(chunks).toString("utf8");
         const headers: Record<string, string> = {};
+        const cookies = Array.isArray(res.headers["set-cookie"])
+          ? res.headers["set-cookie"]
+          : typeof res.headers["set-cookie"] === "string"
+            ? [res.headers["set-cookie"]]
+            : [];
 
         for (const [key, value] of Object.entries(res.headers)) {
           if (!key) {
@@ -180,6 +195,7 @@ const runNodeLoopbackRequest = (parsed: URL, connectHost: string, input: Request
           status: res.statusCode ?? 0,
           statusText: res.statusMessage ?? "",
           headers,
+          cookies,
           body,
           finalUrl: parsed.toString(),
           effectiveUrl: parsed.toString(),
@@ -304,6 +320,7 @@ export async function POST(request: NextRequest) {
         statusText: upstreamResult.statusText,
         durationMs: performance.now() - startedAt,
         headers: upstreamResult.headers,
+        cookies: upstreamResult.cookies,
         body: upstreamResult.body,
         finalUrl: upstreamResult.finalUrl,
         requestBytes,
