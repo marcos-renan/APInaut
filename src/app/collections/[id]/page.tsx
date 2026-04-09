@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Eye, EyeOff, Send, Trash2 } from "lucide-react";
+import { CodeEditor } from "@/components/code-editor";
 import {
   ApiRequest,
   KeyValueRow,
@@ -443,6 +444,37 @@ export default function CollectionDetailsPage() {
   }, [prettyResponseBody, requestError, responseTab, result, scriptError]);
 
   const hasResponseError = Boolean(requestError || scriptError);
+  const responseLanguage = useMemo<"json" | "text">(() => {
+    if (hasResponseError) {
+      return "text";
+    }
+
+    if (responseTab === "headers") {
+      return "json";
+    }
+
+    if (responseTab === "cookies") {
+      return "text";
+    }
+
+    if (!result) {
+      return "text";
+    }
+
+    const contentType = result.headers["content-type"] ?? "";
+
+    if (contentType.includes("application/json")) {
+      return "json";
+    }
+
+    try {
+      JSON.parse(result.body);
+      return "json";
+    } catch {
+      return "text";
+    }
+  }, [hasResponseError, responseTab, result]);
+
   const hasSuccessfulResponse = Boolean(result && result.status >= 200 && result.status < 300);
   const statusDisplay = requestError
     ? "Erro"
@@ -753,17 +785,26 @@ export default function CollectionDetailsPage() {
                         <option value="text">Text</option>
                       </select>
 
-                      <textarea
+                      <CodeEditor
                         value={activeRequest.body}
-                        onChange={(event) =>
+                        onChange={(nextBody) =>
                           updateActiveRequest((request) => ({
                             ...request,
-                            body: event.target.value,
+                            body: nextBody,
                           }))
                         }
-                        disabled={activeRequest.bodyMode === "none"}
-                        className="h-[280px] w-full rounded-lg border border-white/15 bg-[#121025] p-3 text-sm outline-none ring-violet-400 transition focus:ring-2 disabled:opacity-60"
-                        placeholder='{"name":"APInaut"}'
+                        language={activeRequest.bodyMode === "json" ? "json" : "text"}
+                        readOnly={activeRequest.bodyMode === "none"}
+                        enableJsonAutocomplete={activeRequest.bodyMode === "json"}
+                        height={280}
+                        className={activeRequest.bodyMode === "none" ? "opacity-60" : undefined}
+                        placeholder={
+                          activeRequest.bodyMode === "none"
+                            ? "Selecione JSON ou Text para habilitar o body."
+                            : activeRequest.bodyMode === "json"
+                              ? '{\n  "name": "APInaut"\n}'
+                              : "Digite o body da requisicao."
+                        }
                       />
                     </div>
                   )}
@@ -981,13 +1022,21 @@ export default function CollectionDetailsPage() {
                 ))}
               </div>
 
-              <pre
-                className={`h-[486px] overflow-auto p-3 text-xs ${
-                  hasResponseError ? "text-rose-300" : "text-zinc-100"
-                }`}
-              >
-                {responsePaneContent}
-              </pre>
+              <CodeEditor
+                value={responsePaneContent}
+                readOnly
+                language={responseLanguage}
+                errorTone={hasResponseError}
+                height={486}
+                className="rounded-none border-0"
+                placeholder={
+                  responseTab === "cookies"
+                    ? "Nenhum cookie retornado."
+                    : responseTab === "headers"
+                      ? "Nenhum header retornado."
+                      : "Nenhuma resposta ainda."
+                }
+              />
             </div>
 
             {result && (
