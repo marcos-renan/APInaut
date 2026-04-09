@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState, useSyncExternalStore } from "react";
+import { FormEvent, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
+import { dump, load } from "js-yaml";
 import {
+  Collection,
+  createCollectionsExportPayload,
   countRequestsInTree,
   getCollectionsServerSnapshot,
   getCollectionsSnapshot,
+  parseCollectionsData,
   saveCollections,
   subscribeCollections,
 } from "@/lib/collections";
@@ -18,6 +22,120 @@ export default function Home() {
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState("");
+  const [ioFeedback, setIoFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const showFeedback = (type: "success" | "error", message: string) => {
+    setIoFeedback({ type, message });
+  };
+
+  const getExportFileName = (extension: "json" | "yaml") => {
+    const datePart = new Date().toISOString().slice(0, 10);
+    return `apinaut-collections-${datePart}.${extension}`;
+  };
+
+  const triggerDownload = (fileName: string, content: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = (format: "json" | "yaml") => {
+    try {
+      const payload = createCollectionsExportPayload(collections);
+
+      if (format === "json") {
+        triggerDownload(
+          getExportFileName("json"),
+          JSON.stringify(payload, null, 2),
+          "application/json;charset=utf-8",
+        );
+      } else {
+        triggerDownload(
+          getExportFileName("yaml"),
+          dump(payload, { noRefs: true }),
+          "application/x-yaml;charset=utf-8",
+        );
+      }
+
+      showFeedback("success", `Exportação em ${format.toUpperCase()} concluída.`);
+    } catch {
+      showFeedback("error", "Não foi possível exportar as coleções.");
+    }
+  };
+
+  const ensureUniqueCollectionIds = (items: Collection[], existing: Collection[]) => {
+    const seenIds = new Set(existing.map((collection) => collection.id));
+
+    return items.map((collection) => {
+      let nextId = collection.id;
+
+      while (!nextId || seenIds.has(nextId)) {
+        nextId = crypto.randomUUID();
+      }
+
+      seenIds.add(nextId);
+
+      return {
+        ...collection,
+        id: nextId,
+      };
+    });
+  };
+
+  const parseImportedFileContent = (textContent: string, fileName: string) => {
+    const lowerName = fileName.toLowerCase();
+    const isJsonByName = lowerName.endsWith(".json");
+    const isYamlByName = lowerName.endsWith(".yaml") || lowerName.endsWith(".yml");
+
+    if (isJsonByName) {
+      return parseCollectionsData(JSON.parse(textContent));
+    }
+
+    if (isYamlByName) {
+      return parseCollectionsData(load(textContent));
+    }
+
+    try {
+      return parseCollectionsData(JSON.parse(textContent));
+    } catch {
+      return parseCollectionsData(load(textContent));
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const content = await file.text();
+      const imported = parseImportedFileContent(content, file.name);
+
+      if (!imported.length) {
+        throw new Error("Nenhuma coleção válida encontrada no arquivo.");
+      }
+
+      const uniqueImported = ensureUniqueCollectionIds(imported, collections);
+      saveCollections([...uniqueImported, ...collections]);
+      showFeedback("success", `${uniqueImported.length} coleção(ões) importada(s) com sucesso.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao importar arquivo.";
+      showFeedback("error", message);
+    } finally {
+      event.target.value = "";
+    }
+  };
 
   const handleCreateCollection = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -49,14 +167,56 @@ export default function Home() {
       <div className="mx-auto w-full max-w-4xl">
         <div className="mb-6 flex items-center justify-between gap-4">
           <h1 className="text-xl font-semibold text-white">Coleções</h1>
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="rounded-xl bg-violet-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-400"
-          >
-            Criar coleção
-          </button>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.yaml,.yml,application/json,text/yaml,application/x-yaml,text/plain"
+              onChange={handleImportFile}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={handleImportClick}
+              className="rounded-xl border border-white/15 bg-[#1a1728] px-4 py-3 text-sm font-semibold text-zinc-100 transition hover:bg-[#221f33]"
+            >
+              Importar
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport("json")}
+              className="rounded-xl border border-violet-300/40 bg-violet-500/15 px-4 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/25"
+            >
+              Exportar JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport("yaml")}
+              className="rounded-xl border border-violet-300/40 bg-violet-500/15 px-4 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/25"
+            >
+              Exportar YAML
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="rounded-xl bg-violet-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-400"
+            >
+              Criar coleção
+            </button>
+          </div>
         </div>
+
+        {ioFeedback && (
+          <div
+            className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+              ioFeedback.type === "success"
+                ? "border-emerald-300/35 bg-emerald-500/10 text-emerald-100"
+                : "border-rose-300/35 bg-rose-500/10 text-rose-100"
+            }`}
+          >
+            {ioFeedback.message}
+          </div>
+        )}
 
         <section className="space-y-3">
           {collections.length === 0 && (

@@ -65,6 +65,12 @@ export type Collection = {
   activeEnvironmentId: string | null;
 };
 
+export type CollectionsExportPayload = {
+  apinautExportVersion: number;
+  exportedAt: string;
+  collections: Collection[];
+};
+
 const STORAGE_KEY = "apinaut.collections";
 const COLLECTIONS_CHANGED_EVENT = "apinaut:collections-changed";
 const EMPTY_COLLECTIONS: Collection[] = [];
@@ -258,6 +264,35 @@ const normalizeCollection = (value: unknown): Collection | null => {
   };
 };
 
+const normalizeCollectionsFromUnknown = (value: unknown): Collection[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((collection) => normalizeCollection(collection))
+      .filter((collection): collection is Collection => collection !== null);
+  }
+
+  if (value && typeof value === "object") {
+    const candidate = value as { collections?: unknown };
+
+    if (Array.isArray(candidate.collections)) {
+      return candidate.collections
+        .map((collection) => normalizeCollection(collection))
+        .filter((collection): collection is Collection => collection !== null);
+    }
+  }
+
+  return [];
+};
+
+export const parseCollectionsData = (value: unknown): Collection[] =>
+  normalizeCollectionsFromUnknown(value);
+
+export const createCollectionsExportPayload = (collections: Collection[]): CollectionsExportPayload => ({
+  apinautExportVersion: 1,
+  exportedAt: new Date().toISOString(),
+  collections,
+});
+
 export const flattenRequestTree = (nodes: RequestTreeNode[]): ApiRequest[] => {
   const result: ApiRequest[] = [];
 
@@ -303,9 +338,7 @@ export const loadCollections = (): Collection[] => {
       return cachedCollections;
     }
 
-    const normalized = parsed
-      .map((collection) => normalizeCollection(collection))
-      .filter((collection): collection is Collection => collection !== null);
+    const normalized = normalizeCollectionsFromUnknown(parsed);
 
     cachedRaw = stored;
     cachedCollections = normalized;
