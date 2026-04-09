@@ -568,13 +568,15 @@ const buildHeaders = (request: ApiRequest): Record<string, string> => {
   return headers;
 };
 
-const runUserScript = (scriptCode: string, context: Record<string, unknown>) => {
+const runUserScript = (scriptCode: string, bindings: Record<string, unknown>) => {
   if (!scriptCode.trim()) {
     return;
   }
 
-  const execute = new Function("context", `"use strict";\n${scriptCode}`);
-  execute(context);
+  const bindingNames = Object.keys(bindings);
+  const bindingValues = Object.values(bindings);
+  const execute = new Function(...bindingNames, `"use strict";\n${scriptCode}`);
+  execute(...bindingValues);
 };
 
 const KeyValueEditor = ({
@@ -1783,9 +1785,118 @@ export default function CollectionDetailsPage() {
     setIsSending(true);
     setRequestError(null);
     setScriptError(null);
+    const pendingEnvironmentChanges = new Map<string, string | null>();
+    const runtimeEnvironmentVariables: Record<string, string> = { ...activeTemplateVariables };
+
+    const normalizeVariableKey = (key: unknown) => String(key ?? "").trim();
+
+    const setEnvironmentVariable = (key: unknown, value: unknown) => {
+      const normalizedKey = normalizeVariableKey(key);
+
+      if (!normalizedKey) {
+        return;
+      }
+
+      const normalizedValue = value === undefined || value === null ? "" : String(value);
+      runtimeEnvironmentVariables[normalizedKey] = normalizedValue;
+      pendingEnvironmentChanges.set(normalizedKey, normalizedValue);
+    };
+
+    const unsetEnvironmentVariable = (key: unknown) => {
+      const normalizedKey = normalizeVariableKey(key);
+
+      if (!normalizedKey) {
+        return;
+      }
+
+      delete runtimeEnvironmentVariables[normalizedKey];
+      pendingEnvironmentChanges.set(normalizedKey, null);
+    };
+
+    const getEnvironmentVariable = (key: unknown) => {
+      const normalizedKey = normalizeVariableKey(key);
+      return normalizedKey ? runtimeEnvironmentVariables[normalizedKey] ?? null : null;
+    };
+
+    const persistEnvironmentChanges = () => {
+      if (pendingEnvironmentChanges.size === 0) {
+        return;
+      }
+
+      updateCurrentCollection((currentCollection) => {
+        const nextEnvironments = [...currentCollection.environments];
+        let nextActiveEnvironmentId = currentCollection.activeEnvironmentId;
+        let targetEnvironmentIndex = nextActiveEnvironmentId
+          ? nextEnvironments.findIndex((environment) => environment.id === nextActiveEnvironmentId)
+          : -1;
+
+        if (targetEnvironmentIndex < 0) {
+          const fallbackEnvironment = createEnvironmentItem("Default");
+          nextEnvironments.unshift(fallbackEnvironment);
+          targetEnvironmentIndex = 0;
+          nextActiveEnvironmentId = fallbackEnvironment.id;
+        }
+
+        const targetEnvironment = nextEnvironments[targetEnvironmentIndex];
+        let nextVariables = [...targetEnvironment.variables];
+
+        pendingEnvironmentChanges.forEach((nextValue, key) => {
+          const normalizedKey = key.trim();
+
+          if (!normalizedKey) {
+            return;
+          }
+
+          const variableIndex = nextVariables.findIndex(
+            (variable) => variable.key.trim() === normalizedKey,
+          );
+
+          if (nextValue === null) {
+            if (variableIndex >= 0) {
+              nextVariables = nextVariables.filter((_, index) => index !== variableIndex);
+            }
+
+            return;
+          }
+
+          if (variableIndex >= 0) {
+            nextVariables[variableIndex] = {
+              ...nextVariables[variableIndex],
+              enabled: true,
+              key: normalizedKey,
+              value: nextValue,
+            };
+            return;
+          }
+
+          nextVariables = [
+            ...nextVariables,
+            {
+              ...createEnvironmentVariableRow(),
+              enabled: true,
+              key: normalizedKey,
+              value: nextValue,
+            },
+          ];
+        });
+
+        nextEnvironments[targetEnvironmentIndex] = {
+          ...targetEnvironment,
+          variables: nextVariables,
+        };
+
+        return {
+          ...currentCollection,
+          environments: nextEnvironments,
+          activeEnvironmentId: nextActiveEnvironmentId,
+        };
+      });
+
+      pendingEnvironmentChanges.clear();
+    };
 
     try {
-      const resolvedRequest = resolveRequestWithEnvironment(activeRequest, activeTemplateVariables);
+      const resolvedRequest = resolveRequestWithEnvironment(activeRequest, runtimeEnvironmentVariables);
       const finalUrl = buildUrlWithParams(resolvedRequest.url.trim(), resolvedRequest.params);
 
       const payload: {
@@ -1805,11 +1916,66 @@ export default function CollectionDetailsPage() {
         payload.body = resolvedRequest.body;
       }
 
+      const environmentApi = {
+        get: (key: unknown) => getEnvironmentVariable(key),
+        set: (key: unknown, value: unknown) => setEnvironmentVariable(key, value),
+        unset: (key: unknown) => unsetEnvironmentVariable(key),
+        all: () => ({ ...runtimeEnvironmentVariables }),
+      };
+
+      const buildScriptBindings = (responsePayload: RequestExecutionResult | null) => {
+        const responseApi = responsePayload
+          ? {
+              json: () => {
+                try {
+                  return JSON.parse(responsePayload.body || "{}");
+                } catch {
+                  throw new Error("A resposta nao e um JSON valido.");
+                }
+              },
+              text: () => responsePayload.body ?? "",
+              status: responsePayload.status,
+              headers: responsePayload.headers,
+              cookies: responsePayload.cookies,
+            }
+          : {
+              json: () => {
+                throw new Error("Resposta indisponivel no pre-request.");
+              },
+              text: () => "",
+              status: 0,
+              headers: {} as Record<string, string>,
+              cookies: [] as string[],
+            };
+
+        return {
+          context: {
+            request: payload,
+            response: responsePayload,
+            environment: environmentApi,
+          },
+          apinaut: {
+            request: payload,
+            response: responseApi,
+            environment: environmentApi,
+            variables: environmentApi,
+          },
+          insomnia: {
+            request: payload,
+            response: {
+              json: responseApi.json,
+              text: responseApi.text,
+              getStatusCode: () => responseApi.status,
+              getHeaders: () => responseApi.headers,
+            },
+            collectionVariables: environmentApi,
+            environment: environmentApi,
+          },
+        };
+      };
+
       try {
-        runUserScript(resolvedRequest.preRequestScript, {
-          request: payload,
-          environment: activeTemplateVariables,
-        });
+        runUserScript(resolvedRequest.preRequestScript, buildScriptBindings(null));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Falha no script pre-request.";
         setScriptError(message);
@@ -1841,11 +2007,7 @@ export default function CollectionDetailsPage() {
       const resultPayload = data.response;
 
       try {
-        runUserScript(resolvedRequest.afterResponseScript, {
-          request: payload,
-          response: resultPayload,
-          environment: activeTemplateVariables,
-        });
+        runUserScript(resolvedRequest.afterResponseScript, buildScriptBindings(resultPayload));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Falha no script after-response.";
         setScriptError(message);
@@ -1859,6 +2021,7 @@ export default function CollectionDetailsPage() {
       setResult(null);
       setResponseTab("body");
     } finally {
+      persistEnvironmentChanges();
       setIsSending(false);
     }
   };
@@ -2475,9 +2638,12 @@ export default function CollectionDetailsPage() {
                         />
                       )}
 
-                      <p className="text-xs text-zinc-400">
-                        Os scripts sao opcionais. Quando preenchidos, executam com o objeto context.
-                      </p>
+                      <div className="rounded-lg border border-white/10 bg-[#121025] p-3 text-xs text-zinc-300">
+                        <p className="font-medium text-zinc-200">Atalhos de script:</p>
+                        <p className="mt-1">`apinaut.response.json()` para ler JSON da resposta.</p>
+                        <p>`apinaut.environment.set(&quot;token&quot;, &quot;...&quot;)` para salvar variavel no ambiente ativo.</p>
+                        <p className="mt-1 text-zinc-400">Tambem funciona com compatibilidade: `insomnia.collectionVariables.set(...)`.</p>
+                      </div>
                     </div>
                   )}
                 </div>
