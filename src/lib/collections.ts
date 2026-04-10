@@ -317,6 +317,62 @@ const looksLikeJsonBody = (value: string): boolean => {
   }
 };
 
+const parseBodyFieldValue = (value: string): unknown => {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  const isStructuredJson =
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"));
+
+  if (isStructuredJson) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      // mantém como texto quando não for JSON válido apesar de "parecer".
+    }
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower === "true") {
+    return true;
+  }
+  if (lower === "false") {
+    return false;
+  }
+  if (lower === "null") {
+    return null;
+  }
+
+  return value;
+};
+
+const normalizeBodyParamsAsJsonObject = (entries: Array<{ name: string; value: string }>): string => {
+  const result: Record<string, unknown> = {};
+
+  for (const entry of entries) {
+    const parsedValue = parseBodyFieldValue(entry.value);
+    const currentValue = result[entry.name];
+
+    if (currentValue === undefined) {
+      result[entry.name] = parsedValue;
+      continue;
+    }
+
+    if (Array.isArray(currentValue)) {
+      currentValue.push(parsedValue);
+      continue;
+    }
+
+    result[entry.name] = [currentValue, parsedValue];
+  }
+
+  return JSON.stringify(result, null, 2);
+};
+
 const hasJsonContentTypeHeader = (value: unknown): boolean => {
   if (!Array.isArray(value)) {
     return false;
@@ -950,14 +1006,24 @@ const normalizeInsomniaBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "b
               ? ""
               : String(entry.value);
 
-        return `${entry.name}=${itemValue}`;
+        return {
+          name: entry.name,
+          value: itemValue,
+        };
       })
-      .filter((entry): entry is string => entry !== null);
+      .filter((entry): entry is { name: string; value: string } => entry !== null);
 
     if (entries.length > 0) {
+      if (mimeType.includes("multipart/form-data") || mimeType.includes("x-www-form-urlencoded")) {
+        return {
+          bodyMode: "json",
+          body: normalizeBodyParamsAsJsonObject(entries),
+        };
+      }
+
       return {
         bodyMode: "text",
-        body: entries.join("\n"),
+        body: entries.map((entry) => `${entry.name}=${entry.value}`).join("\n"),
       };
     }
   }
