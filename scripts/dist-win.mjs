@@ -45,10 +45,10 @@ const main = async () => {
 
   await rcedit(exePath, {
     icon: iconPath,
-    "product-version": "0.1.0",
-    "file-version": "0.1.0.0",
+    "product-version": "0.1.1",
+    "file-version": "0.1.1.0",
     "version-string": {
-      CompanyName: "APInaut Team",
+      CompanyName: "Marcos Renan",
       FileDescription: "APInaut",
       ProductName: "APInaut",
       OriginalFilename: "APInaut.exe",
