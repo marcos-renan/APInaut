@@ -15,6 +15,7 @@ import {
 import { dump, load } from "js-yaml";
 import {
   Collection,
+  RequestTreeNode,
   createCollectionsExportPayload,
   countRequestsInTree,
   getCollectionsServerSnapshot,
@@ -38,6 +39,22 @@ type DeleteCollectionTarget = {
 const COLLECTION_MENU_WIDTH = 172;
 const COLLECTION_MENU_HEIGHT = 124;
 const MENU_VIEWPORT_PADDING = 8;
+
+const countFoldersInTree = (nodes: RequestTreeNode[]): number => {
+  let count = 0;
+
+  const walk = (items: RequestTreeNode[]) => {
+    for (const item of items) {
+      if (item.type === "folder") {
+        count += 1;
+        walk(item.children);
+      }
+    }
+  };
+
+  walk(nodes);
+  return count;
+};
 
 export default function Home() {
   const router = useRouter();
@@ -428,6 +445,8 @@ export default function Home() {
 
           {collections.map((collection) => {
             const requestCount = countRequestsInTree(collection.requestTree);
+            const folderCount = countFoldersInTree(collection.requestTree);
+            const environmentCount = collection.environments.length;
 
             return (
               <article
@@ -444,7 +463,7 @@ export default function Home() {
                 className="flex aspect-square cursor-pointer flex-col rounded-xl border border-white/10 bg-[#1a1728] p-3 text-white transition hover:border-violet-300/40 hover:bg-[#221f33] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="line-clamp-2 pr-2 text-sm font-semibold">{collection.name}</h2>
+                  <h2 className="line-clamp-3 pr-2 text-lg font-extrabold leading-6 text-zinc-50">{collection.name}</h2>
                   <button
                     type="button"
                     onClick={(event) => openCollectionMenu(event, collection.id)}
@@ -456,11 +475,21 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="mt-2 space-y-1 text-[11px] text-zinc-400">
-                  <p>Criada em {new Date(collection.createdAt).toLocaleDateString("pt-BR")}</p>
-                  <p className="text-zinc-500">{requestCount} requisicao(oes)</p>
+                <div className="mt-3 space-y-1 text-sm">
+                  <p className="font-medium text-cyan-200">
+                    Criada em {new Date(collection.createdAt).toLocaleDateString("pt-BR")}
+                  </p>
+                  <p className="font-medium text-violet-200">
+                    {environmentCount} ambiente(s)
+                  </p>
+                  <p className="font-medium text-amber-200">
+                    {folderCount} pasta(s)
+                  </p>
+                  <p className="font-medium text-emerald-200">
+                    {requestCount} request(s)
+                  </p>
                 </div>
-                <div className="mt-auto pt-3 text-[11px] font-medium text-violet-200/80">Clique para abrir</div>
+                <div className="mt-auto pt-3 text-xs font-medium text-violet-200/80">Clique para abrir</div>
               </article>
             );
           })}
