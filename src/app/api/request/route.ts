@@ -6,13 +6,23 @@ type RequestPayload = {
   method?: string;
   url?: string;
   headers?: Record<string, string>;
+  bodyMode?: "none" | "json" | "text" | "multipart";
   body?: string;
+  multipart?: Array<{
+    enabled?: boolean;
+    key?: string;
+    valueType?: "text" | "file";
+    value?: string;
+    fileName?: string;
+    mimeType?: string;
+    fileData?: string;
+  }>;
 };
 
 type RequestInput = {
   method: string;
   headers: Record<string, string>;
-  body?: string;
+  body?: string | ArrayBuffer;
 };
 
 type UpstreamResult = {
@@ -39,6 +49,96 @@ const bytesFromHeaders = (headers: Record<string, string>) =>
     (total, [key, value]) => total + bytesFromString(key) + bytesFromString(value),
     0,
   );
+
+const bytesFromBody = (value: string | ArrayBuffer | undefined) => {
+  if (value === undefined) {
+    return 0;
+  }
+
+  return value instanceof ArrayBuffer ? value.byteLength : bytesFromString(value);
+};
+
+const deleteHeaderCaseInsensitive = (headers: Record<string, string>, targetHeader: string) => {
+  const target = targetHeader.toLowerCase();
+
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === target) {
+      delete headers[key];
+    }
+  }
+};
+
+const escapeQuotedHeaderValue = (value: string) => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
+const buildMultipartBody = (
+  fields: Array<{
+    key: string;
+    valueType: "text" | "file";
+    value: string;
+    fileName?: string;
+    mimeType?: string;
+    fileData?: string;
+  }>,
+) => {
+  const boundary = `----apinaut-${crypto.randomUUID()}`;
+  const chunks: Buffer[] = [];
+
+  for (const field of fields) {
+    if (!field.key.trim()) {
+      continue;
+    }
+
+    chunks.push(Buffer.from(`--${boundary}\r\n`, "utf8"));
+
+    if (field.valueType === "file") {
+      const filename = field.fileName?.trim() || "upload.bin";
+      const mimeType = field.mimeType?.trim() || "application/octet-stream";
+      const encodedData = field.fileData?.trim() || "";
+
+      if (!encodedData) {
+        throw new Error(`Arquivo multipart ausente para o campo "${field.key}".`);
+      }
+
+      let fileBuffer: Buffer;
+
+      try {
+        fileBuffer = Buffer.from(encodedData, "base64");
+      } catch {
+        throw new Error(`Arquivo multipart invalido para o campo "${field.key}".`);
+      }
+
+      chunks.push(
+        Buffer.from(
+          `Content-Disposition: form-data; name="${escapeQuotedHeaderValue(field.key)}"; filename="${escapeQuotedHeaderValue(filename)}"\r\n`,
+          "utf8",
+        ),
+      );
+      chunks.push(Buffer.from(`Content-Type: ${mimeType}\r\n\r\n`, "utf8"));
+      chunks.push(fileBuffer);
+      chunks.push(Buffer.from("\r\n", "utf8"));
+      continue;
+    }
+
+    chunks.push(
+      Buffer.from(
+        `Content-Disposition: form-data; name="${escapeQuotedHeaderValue(field.key)}"\r\n\r\n`,
+        "utf8",
+      ),
+    );
+    chunks.push(Buffer.from(field.value, "utf8"));
+    chunks.push(Buffer.from("\r\n", "utf8"));
+  }
+
+  chunks.push(Buffer.from(`--${boundary}--\r\n`, "utf8"));
+
+  const merged = Buffer.concat(chunks);
+  const body = merged.buffer.slice(merged.byteOffset, merged.byteOffset + merged.byteLength);
+
+  return {
+    boundary,
+    body,
+  };
+};
 
 const normalizeHostname = (hostname: string) => hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
 
@@ -212,8 +312,12 @@ const runNodeLoopbackRequest = (parsed: URL, connectHost: string, input: Request
 
     req.on("error", reject);
 
-    if (input.body) {
-      req.write(input.body);
+    if (input.body !== undefined) {
+      if (typeof input.body === "string") {
+        req.write(input.body);
+      } else {
+        req.write(Buffer.from(input.body));
+      }
     }
 
     req.end();
@@ -266,17 +370,57 @@ export async function POST(request: NextRequest) {
     const headers = { ...(payload.headers ?? {}) };
 
     if (METHODS_WITHOUT_BODY.has(normalizedMethod)) {
-      for (const key of Object.keys(headers)) {
-        if (key.toLowerCase() === "content-length") {
-          delete headers[key];
+      deleteHeaderCaseInsensitive(headers, "content-length");
+    }
+
+    let requestBody: string | ArrayBuffer | undefined;
+
+    if (!METHODS_WITHOUT_BODY.has(normalizedMethod)) {
+      if (payload.bodyMode === "multipart") {
+        const normalizedFields = Array.isArray(payload.multipart)
+          ? payload.multipart
+              .filter((field) => field && typeof field === "object" && field.enabled !== false)
+              .map(
+                (field): {
+                  key: string;
+                  valueType: "text" | "file";
+                  value: string;
+                  fileName?: string;
+                  mimeType?: string;
+                  fileData?: string;
+                } => ({
+                  key: typeof field.key === "string" ? field.key.trim() : "",
+                  valueType: field.valueType === "file" ? "file" : "text",
+                  value:
+                    typeof field.value === "string"
+                      ? field.value
+                      : field.value === undefined || field.value === null
+                        ? ""
+                        : String(field.value),
+                  fileName: typeof field.fileName === "string" ? field.fileName : undefined,
+                  mimeType: typeof field.mimeType === "string" ? field.mimeType : undefined,
+                  fileData: typeof field.fileData === "string" ? field.fileData : undefined,
+                }),
+              )
+              .filter((field) => field.key.length > 0)
+          : [];
+
+        if (normalizedFields.length > 0) {
+          const multipart = buildMultipartBody(normalizedFields);
+          requestBody = multipart.body;
+          deleteHeaderCaseInsensitive(headers, "content-type");
+          deleteHeaderCaseInsensitive(headers, "content-length");
+          headers["Content-Type"] = `multipart/form-data; boundary=${multipart.boundary}`;
         }
+      } else if (typeof payload.body === "string") {
+        requestBody = payload.body;
       }
     }
 
     const requestInput: RequestInput = {
       method: normalizedMethod,
       headers,
-      body: METHODS_WITHOUT_BODY.has(normalizedMethod) ? undefined : payload.body,
+      body: METHODS_WITHOUT_BODY.has(normalizedMethod) ? undefined : requestBody,
     };
 
     const startedAt = performance.now();
@@ -320,7 +464,7 @@ export async function POST(request: NextRequest) {
       bytesFromString(requestInput.method) +
       bytesFromString(upstreamResult.effectiveUrl) +
       bytesFromHeaders(requestInput.headers) +
-      bytesFromString(requestInput.body ?? "");
+      bytesFromBody(requestInput.body);
 
     const responseBytes = bytesFromHeaders(upstreamResult.headers) + bytesFromString(upstreamResult.body);
     const totalBytes = requestBytes + responseBytes;

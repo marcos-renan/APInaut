@@ -9,7 +9,20 @@ export type KeyValueRow = {
   value: string;
 };
 
-export type RequestBodyMode = "none" | "json" | "text";
+export type MultipartFormValueType = "text" | "file";
+
+export type MultipartFormRow = {
+  id: string;
+  enabled: boolean;
+  key: string;
+  valueType: MultipartFormValueType;
+  value: string;
+  fileName?: string;
+  mimeType?: string;
+  fileData?: string;
+};
+
+export type RequestBodyMode = "none" | "json" | "text" | "multipart";
 
 export type ApiRequest = {
   id: string;
@@ -20,6 +33,7 @@ export type ApiRequest = {
   headers: KeyValueRow[];
   bodyMode: RequestBodyMode;
   body: string;
+  bodyForm: MultipartFormRow[];
   authType: AuthType;
   bearerToken: string;
   basicUsername: string;
@@ -106,6 +120,17 @@ const createRow = (seed?: Partial<KeyValueRow>): KeyValueRow => ({
   value: seed?.value ?? "",
 });
 
+const createMultipartFormRow = (seed?: Partial<MultipartFormRow>): MultipartFormRow => ({
+  id: seed?.id ?? crypto.randomUUID(),
+  enabled: seed?.enabled ?? true,
+  key: seed?.key ?? "",
+  valueType: seed?.valueType === "file" ? "file" : "text",
+  value: seed?.value ?? "",
+  fileName: typeof seed?.fileName === "string" ? seed.fileName : undefined,
+  mimeType: typeof seed?.mimeType === "string" ? seed.mimeType : undefined,
+  fileData: typeof seed?.fileData === "string" ? seed.fileData : undefined,
+});
+
 const createEnvironmentVariable = (seed?: Partial<EnvironmentVariable>): EnvironmentVariable => ({
   id: seed?.id ?? crypto.randomUUID(),
   enabled: seed?.enabled ?? true,
@@ -147,6 +172,16 @@ const normalizeRows = (value: unknown): KeyValueRow[] => {
   return value.map((entry) => createRow(typeof entry === "object" && entry ? (entry as KeyValueRow) : {}));
 };
 
+const normalizeMultipartFormRows = (value: unknown): MultipartFormRow[] => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [createMultipartFormRow()];
+  }
+
+  return value.map((entry) =>
+    createMultipartFormRow(typeof entry === "object" && entry ? (entry as MultipartFormRow) : {}),
+  );
+};
+
 export const createDefaultRequest = (name = "New Request"): ApiRequest => ({
   id: crypto.randomUUID(),
   name,
@@ -156,6 +191,7 @@ export const createDefaultRequest = (name = "New Request"): ApiRequest => ({
   headers: [createRow()],
   bodyMode: "none",
   body: "",
+  bodyForm: [createMultipartFormRow()],
   authType: "none",
   bearerToken: "",
   basicUsername: "",
@@ -183,10 +219,14 @@ const normalizeRequest = (value: unknown): ApiRequest => {
     params: normalizeRows(candidate.params),
     headers: normalizeRows(candidate.headers),
     bodyMode:
-      candidate.bodyMode === "none" || candidate.bodyMode === "json" || candidate.bodyMode === "text"
+      candidate.bodyMode === "none" ||
+      candidate.bodyMode === "json" ||
+      candidate.bodyMode === "text" ||
+      candidate.bodyMode === "multipart"
         ? candidate.bodyMode
         : request.bodyMode,
     body: typeof candidate.body === "string" ? candidate.body : request.body,
+    bodyForm: normalizeMultipartFormRows(candidate.bodyForm),
     authType:
       candidate.authType === "none" || candidate.authType === "bearer" || candidate.authType === "basic"
         ? candidate.authType
@@ -371,6 +411,90 @@ const normalizeBodyParamsAsJsonObject = (entries: Array<{ name: string; value: s
   }
 
   return JSON.stringify(result, null, 2);
+};
+
+const extractFileNameFromPath = (value: string): string => {
+  const normalized = value.replaceAll("\\", "/").trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  const segments = normalized.split("/");
+  return segments[segments.length - 1] ?? normalized;
+};
+
+const normalizeMultipartBodyRows = (entries: unknown[]): MultipartFormRow[] => {
+  const rows = entries
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const item = entry as {
+        key?: unknown;
+        name?: unknown;
+        value?: unknown;
+        type?: unknown;
+        src?: unknown;
+        disabled?: unknown;
+        fileName?: unknown;
+        mimeType?: unknown;
+      };
+
+      const key =
+        typeof item.key === "string"
+          ? item.key
+          : typeof item.name === "string"
+            ? item.name
+            : "";
+
+      if (!key.trim()) {
+        return null;
+      }
+
+      const valueType: MultipartFormValueType = item.type === "file" ? "file" : "text";
+
+      if (valueType === "file") {
+        const src =
+          typeof item.src === "string"
+            ? item.src
+            : Array.isArray(item.src)
+              ? item.src.find((candidate): candidate is string => typeof candidate === "string") ?? ""
+              : "";
+        const fallbackValue = typeof item.value === "string" ? item.value : "";
+        const fileName =
+          typeof item.fileName === "string"
+            ? item.fileName
+            : extractFileNameFromPath(src || fallbackValue);
+
+        return createMultipartFormRow({
+          enabled: item.disabled !== true,
+          key,
+          valueType: "file",
+          value: src || fallbackValue,
+          fileName: fileName || undefined,
+          mimeType: typeof item.mimeType === "string" ? item.mimeType : undefined,
+        });
+      }
+
+      const value =
+        typeof item.value === "string"
+          ? item.value
+          : item.value === undefined || item.value === null
+            ? ""
+            : String(item.value);
+
+      return createMultipartFormRow({
+        enabled: item.disabled !== true,
+        key,
+        valueType: "text",
+        value,
+      });
+    })
+    .filter((entry): entry is MultipartFormRow => entry !== null);
+
+  return rows.length > 0 ? rows : [createMultipartFormRow()];
 };
 
 const hasJsonContentTypeHeader = (value: unknown): boolean => {
@@ -571,24 +695,46 @@ const normalizePostmanAuth = (
 const normalizePostmanBody = (
   value: unknown,
   headers: unknown,
-): Pick<ApiRequest, "bodyMode" | "body"> => {
+): Pick<ApiRequest, "bodyMode" | "body" | "bodyForm"> => {
   if (!value || typeof value !== "object") {
     return {
       bodyMode: "none",
       body: "",
+      bodyForm: [createMultipartFormRow()],
     };
   }
 
   const candidate = value as {
     mode?: unknown;
     raw?: unknown;
+    formdata?: unknown;
+    urlencoded?: unknown;
     options?: unknown;
   };
+
+  if (candidate.mode === "formdata") {
+    const rows = normalizeMultipartBodyRows(Array.isArray(candidate.formdata) ? candidate.formdata : []);
+    return {
+      bodyMode: rows.length > 0 && rows.some((row) => row.key.trim()) ? "multipart" : "none",
+      body: "",
+      bodyForm: rows,
+    };
+  }
+
+  if (candidate.mode === "urlencoded") {
+    const rows = normalizeMultipartBodyRows(Array.isArray(candidate.urlencoded) ? candidate.urlencoded : []);
+    return {
+      bodyMode: rows.length > 0 && rows.some((row) => row.key.trim()) ? "multipart" : "none",
+      body: "",
+      bodyForm: rows.map((row) => (row.valueType === "file" ? { ...row, valueType: "text" } : row)),
+    };
+  }
 
   if (candidate.mode !== "raw") {
     return {
       bodyMode: "none",
       body: "",
+      bodyForm: [createMultipartFormRow()],
     };
   }
 
@@ -598,6 +744,7 @@ const normalizePostmanBody = (
     return {
       bodyMode: "none",
       body: "",
+      bodyForm: [createMultipartFormRow()],
     };
   }
 
@@ -615,6 +762,7 @@ const normalizePostmanBody = (
   return {
     bodyMode: rawLanguage === "json" || hasJsonHeader || bodyLooksJson ? "json" : "text",
     body: rawBody,
+    bodyForm: [createMultipartFormRow()],
   };
 };
 
@@ -724,6 +872,7 @@ const normalizePostmanRequestNode = (value: unknown): RequestTreeNode | null => 
       headers: normalizedHeaders,
       bodyMode: normalizedBody.bodyMode,
       body: normalizedBody.body,
+      bodyForm: normalizedBody.bodyForm,
       authType: normalizedAuth.authType,
       bearerToken: normalizedAuth.bearerToken,
       basicUsername: normalizedAuth.basicUsername,
@@ -970,11 +1119,12 @@ const normalizeInsomniaAuth = (
   };
 };
 
-const normalizeInsomniaBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "body"> => {
+const normalizeInsomniaBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "body" | "bodyForm"> => {
   if (!isRecord(value)) {
     return {
       bodyMode: "none",
       body: "",
+      bodyForm: [createMultipartFormRow()],
     };
   }
 
@@ -985,45 +1135,72 @@ const normalizeInsomniaBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "b
     return {
       bodyMode: mimeType.includes("json") || looksLikeJsonBody(rawText) ? "json" : "text",
       body: rawText,
+      bodyForm: [createMultipartFormRow()],
     };
   }
 
   if (Array.isArray(value.params)) {
-    const entries = value.params
-      .map((entry) => {
-        if (!isRecord(entry) || entry.disabled === true || typeof entry.name !== "string") {
-          return null;
+    const multipartRows = normalizeMultipartBodyRows(
+      value.params.map((entry) => {
+        if (!isRecord(entry)) {
+          return entry;
         }
 
-        if (entry.type === "file") {
-          return null;
-        }
-
-        const itemValue =
-          typeof entry.value === "string"
-            ? normalizeInsomniaTemplateString(entry.value)
-            : entry.value === undefined || entry.value === null
-              ? ""
-              : String(entry.value);
-
-        return {
-          name: entry.name,
-          value: itemValue,
+        const normalized: Record<string, unknown> = {
+          ...entry,
+          name:
+            typeof entry.name === "string"
+              ? normalizeInsomniaTemplateString(entry.name)
+              : entry.name,
+          value:
+            typeof entry.value === "string"
+              ? normalizeInsomniaTemplateString(entry.value)
+              : entry.value,
         };
-      })
-      .filter((entry): entry is { name: string; value: string } => entry !== null);
 
-    if (entries.length > 0) {
-      if (mimeType.includes("multipart/form-data") || mimeType.includes("x-www-form-urlencoded")) {
+        if (typeof entry.fileName === "string") {
+          normalized.fileName = normalizeInsomniaTemplateString(entry.fileName);
+        }
+
+        if (typeof entry.filePath === "string") {
+          normalized.src = normalizeInsomniaTemplateString(entry.filePath);
+        }
+
+        return normalized;
+      }),
+    );
+
+    const hasEnabledRows = multipartRows.some((row) => row.enabled && row.key.trim());
+    const hasFileRows = multipartRows.some((row) => row.valueType === "file");
+
+    if (hasEnabledRows && (mimeType.includes("multipart/form-data") || hasFileRows)) {
+      return {
+        bodyMode: "multipart",
+        body: "",
+        bodyForm: multipartRows,
+      };
+    }
+
+    const textRows = multipartRows
+      .filter((row) => row.enabled && row.key.trim() && row.valueType === "text")
+      .map((row) => ({
+        name: row.key,
+        value: row.value,
+      }));
+
+    if (textRows.length > 0) {
+      if (mimeType.includes("x-www-form-urlencoded")) {
         return {
-          bodyMode: "json",
-          body: normalizeBodyParamsAsJsonObject(entries),
+          bodyMode: "text",
+          body: textRows.map((entry) => `${entry.name}=${entry.value}`).join("&"),
+          bodyForm: [createMultipartFormRow()],
         };
       }
 
       return {
-        bodyMode: "text",
-        body: entries.map((entry) => `${entry.name}=${entry.value}`).join("\n"),
+        bodyMode: "json",
+        body: normalizeBodyParamsAsJsonObject(textRows),
+        bodyForm: [createMultipartFormRow()],
       };
     }
   }
@@ -1031,6 +1208,7 @@ const normalizeInsomniaBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "b
   return {
     bodyMode: "none",
     body: "",
+    bodyForm: [createMultipartFormRow()],
   };
 };
 
@@ -1079,6 +1257,7 @@ const normalizeInsomniaRequestNode = (value: unknown): RequestTreeNode | null =>
       headers: normalizeInsomniaRows(value.headers),
       bodyMode: body.bodyMode,
       body: body.body,
+      bodyForm: body.bodyForm,
       authType: auth.authType,
       bearerToken: auth.bearerToken,
       basicUsername: auth.basicUsername,

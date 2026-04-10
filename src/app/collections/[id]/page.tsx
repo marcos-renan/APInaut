@@ -36,6 +36,7 @@ import {
   Environment,
   EnvironmentVariable,
   GlobalEnvironmentsState,
+  MultipartFormRow,
   RequestTreeFolderNode,
   RequestTreeNode,
   KeyValueRow,
@@ -318,14 +319,34 @@ const createRow = (): KeyValueRow => ({
   value: "",
 });
 
+const createMultipartFormRow = (): MultipartFormRow => ({
+  id: crypto.randomUUID(),
+  enabled: true,
+  key: "",
+  valueType: "text",
+  value: "",
+});
+
 const normalizeRowsForUi = (rows: KeyValueRow[]): KeyValueRow[] => {
   if (!rows.length) {
     return [createRow()];
   }
 
+      return rows.map((row) => ({
+    ...row,
+    id: row.id || crypto.randomUUID(),
+  }));
+};
+
+const normalizeMultipartRowsForUi = (rows: MultipartFormRow[]): MultipartFormRow[] => {
+  if (!rows.length) {
+    return [createMultipartFormRow()];
+  }
+
   return rows.map((row) => ({
     ...row,
     id: row.id || crypto.randomUUID(),
+    valueType: row.valueType === "file" ? "file" : "text",
   }));
 };
 
@@ -333,6 +354,7 @@ const createRequestForUi = (name: string): ApiRequest => ({
   ...createDefaultRequest(name),
   params: [createRow()],
   headers: [createRow()],
+  bodyForm: [createMultipartFormRow()],
 });
 
 const createRequestNode = (name = "New Request"): RequestTreeNode => {
@@ -639,6 +661,11 @@ const resolveRequestWithEnvironment = (
   params: interpolateRows(request.params, variables),
   headers: interpolateRows(request.headers, variables),
   body: interpolateTemplateValue(request.body, variables),
+  bodyForm: request.bodyForm.map((row) => ({
+    ...row,
+    key: interpolateTemplateValue(row.key, variables),
+    value: row.valueType === "text" ? interpolateTemplateValue(row.value, variables) : row.value,
+  })),
   bearerToken: interpolateTemplateValue(request.bearerToken, variables),
   basicUsername: interpolateTemplateValue(request.basicUsername, variables),
   basicPassword: interpolateTemplateValue(request.basicPassword, variables),
@@ -696,6 +723,14 @@ const buildHeaders = (request: ApiRequest): Record<string, string> => {
     headers["Content-Type"] = "application/json";
   }
 
+  if (request.bodyMode === "multipart") {
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === "content-type") {
+        delete headers[key];
+      }
+    }
+  }
+
   return headers;
 };
 
@@ -717,6 +752,23 @@ const escapeHtml = (value: string) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+
+const readFileAsBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const commaIndex = result.indexOf(",");
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : "");
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Falha ao ler arquivo."));
+    };
+
+    reader.readAsDataURL(file);
+  });
 
 const KeyValueEditor = ({
   rows,
@@ -873,6 +925,223 @@ const KeyValueEditor = ({
         className="rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
       >
         + Adicionar linha
+      </button>
+    </div>
+  );
+};
+
+const MultipartFormEditor = ({
+  rows,
+  onChange,
+  onAdd,
+  onRemove,
+  onFileSelect,
+  onTextFieldChange,
+  onTextFieldKeyDown,
+}: {
+  rows: MultipartFormRow[];
+  onChange: (id: string, field: keyof MultipartFormRow, value: string | boolean) => void;
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+  onFileSelect: (id: string, file: File | null) => void;
+  onTextFieldChange?: (
+    event: ReactChangeEvent<HTMLInputElement>,
+    applyValue: (nextValue: string) => void,
+  ) => void;
+  onTextFieldKeyDown?: (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    currentValue: string,
+    applyValue: (nextValue: string) => void,
+  ) => void;
+}) => {
+  const [pendingDeleteRowId, setPendingDeleteRowId] = useState<string | null>(null);
+  const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  useEffect(
+    () => () => {
+      if (deleteConfirmTimeoutRef.current) {
+        clearTimeout(deleteConfirmTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleRemoveClick = (rowId: string) => {
+    if (pendingDeleteRowId === rowId) {
+      if (deleteConfirmTimeoutRef.current) {
+        clearTimeout(deleteConfirmTimeoutRef.current);
+      }
+
+      deleteConfirmTimeoutRef.current = null;
+      setPendingDeleteRowId(null);
+      onRemove(rowId);
+      return;
+    }
+
+    if (deleteConfirmTimeoutRef.current) {
+      clearTimeout(deleteConfirmTimeoutRef.current);
+    }
+
+    setPendingDeleteRowId(rowId);
+
+    deleteConfirmTimeoutRef.current = setTimeout(() => {
+      setPendingDeleteRowId((current) => (current === rowId ? null : current));
+      deleteConfirmTimeoutRef.current = null;
+    }, DELETE_CONFIRM_TIMEOUT_MS);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="hidden grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
+        <span>Ativo</span>
+        <span>Chave</span>
+        <span>Tipo</span>
+        <span>Valor</span>
+        <span>Acao</span>
+      </div>
+
+      {rows.map((row) => {
+        const isDeletePending = pendingDeleteRowId === row.id;
+        const fileLabel = row.fileName?.trim() || row.value.trim() || "Selecionar arquivo";
+
+        return (
+          <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px]">
+            <button
+              type="button"
+              onClick={() => onChange(row.id, "enabled", !row.enabled)}
+              className={`flex h-10 items-center justify-center rounded-lg border transition ${
+                row.enabled
+                  ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
+                  : "border-white/15 bg-[#121025] hover:bg-white/10"
+              }`}
+              aria-pressed={row.enabled}
+              aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
+              title={row.enabled ? "Desativar linha" : "Ativar linha"}
+            >
+              <span
+                className={`relative h-5 w-9 rounded-full transition ${
+                  row.enabled ? "bg-emerald-500" : "bg-zinc-700"
+                }`}
+              >
+                <span
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                    row.enabled ? "translate-x-4" : ""
+                  }`}
+                />
+              </span>
+            </button>
+
+            <input
+              value={row.key}
+              onChange={(event) => {
+                const apply = (nextValue: string) => onChange(row.id, "key", nextValue);
+
+                if (onTextFieldChange) {
+                  onTextFieldChange(event, apply);
+                  return;
+                }
+
+                apply(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                onTextFieldKeyDown?.(event, row.key, (nextValue) => onChange(row.id, "key", nextValue));
+              }}
+              className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+              placeholder="field"
+            />
+
+            <StyledSelect
+              value={row.valueType}
+              onChange={(nextValue) => {
+                const nextType = nextValue === "file" ? "file" : "text";
+
+                if (nextType === "text") {
+                  onChange(row.id, "valueType", "text");
+                  onChange(row.id, "value", "");
+                  onChange(row.id, "fileName", "");
+                  onChange(row.id, "mimeType", "");
+                  onChange(row.id, "fileData", "");
+                  return;
+                }
+
+                onChange(row.id, "valueType", "file");
+              }}
+              options={[
+                { value: "text", label: "Text" },
+                { value: "file", label: "File" },
+              ]}
+              containerClassName="w-full"
+              triggerClassName="h-10 rounded-lg px-3 text-sm"
+            />
+
+            {row.valueType === "file" ? (
+              <div className="min-w-0">
+                <input
+                  ref={(element) => {
+                    fileInputRefs.current[row.id] = element;
+                  }}
+                  type="file"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    onFileSelect(row.id, file);
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRefs.current[row.id]?.click()}
+                  className="h-10 w-full truncate rounded-lg border border-white/15 bg-[#121025] px-3 text-left text-sm text-zinc-200 transition hover:bg-white/10"
+                  title={fileLabel}
+                >
+                  {fileLabel}
+                </button>
+              </div>
+            ) : (
+              <input
+                value={row.value}
+                onChange={(event) => {
+                  const apply = (nextValue: string) => onChange(row.id, "value", nextValue);
+
+                  if (onTextFieldChange) {
+                    onTextFieldChange(event, apply);
+                    return;
+                  }
+
+                  apply(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  onTextFieldKeyDown?.(event, row.value, (nextValue) => onChange(row.id, "value", nextValue));
+                }}
+                className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
+                placeholder="value"
+              />
+            )}
+
+            <button
+              type="button"
+              onClick={() => handleRemoveClick(row.id)}
+              className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
+                isDeletePending
+                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+              }`}
+              aria-label={isDeletePending ? "Clique novamente para remover linha" : "Remover linha"}
+              title={isDeletePending ? "Clique novamente para remover" : "Remover linha"}
+            >
+              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+            </button>
+          </div>
+        );
+      })}
+
+      <button
+        type="button"
+        onClick={onAdd}
+        className="rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
+      >
+        + Adicionar campo
       </button>
     </div>
   );
@@ -1569,6 +1838,7 @@ export default function CollectionDetailsPage() {
           ...nextRequest,
           params: normalizeRowsForUi(nextRequest.params),
           headers: normalizeRowsForUi(nextRequest.headers),
+          bodyForm: normalizeMultipartRowsForUi(nextRequest.bodyForm),
         };
       }),
     );
@@ -1602,6 +1872,64 @@ export default function CollectionDetailsPage() {
         [area]: filtered.length ? filtered : [createRow()],
       };
     });
+  };
+
+  const updateMultipartRow = (
+    rowId: string,
+    field: keyof MultipartFormRow,
+    value: string | boolean,
+  ) => {
+    updateActiveRequest((request) => ({
+      ...request,
+      bodyForm: request.bodyForm.map((row) => (row.id === rowId ? { ...row, [field]: value } : row)),
+    }));
+  };
+
+  const addMultipartRow = () => {
+    updateActiveRequest((request) => ({
+      ...request,
+      bodyForm: [...request.bodyForm, createMultipartFormRow()],
+    }));
+  };
+
+  const removeMultipartRow = (rowId: string) => {
+    updateActiveRequest((request) => {
+      const filtered = request.bodyForm.filter((row) => row.id !== rowId);
+
+      return {
+        ...request,
+        bodyForm: filtered.length ? filtered : [createMultipartFormRow()],
+      };
+    });
+  };
+
+  const selectMultipartFile = async (rowId: string, file: File | null) => {
+    if (!file) {
+      return;
+    }
+
+    try {
+      const fileData = await readFileAsBase64(file);
+
+      updateActiveRequest((request) => ({
+        ...request,
+        bodyForm: request.bodyForm.map((row) =>
+          row.id === rowId
+            ? {
+                ...row,
+                valueType: "file",
+                value: file.name,
+                fileName: file.name,
+                mimeType: file.type || "application/octet-stream",
+                fileData,
+              }
+            : row,
+        ),
+      }));
+    } catch {
+      setRequestError("Falha ao carregar o arquivo selecionado.");
+      setResponseTab("body");
+    }
   };
 
   const getTemplateSuggestionOptions = (query: string) => {
@@ -2725,17 +3053,57 @@ export default function CollectionDetailsPage() {
         method: ApiRequest["method"];
         url: string;
         headers: Record<string, string>;
+        bodyMode: ApiRequest["bodyMode"];
         body?: string;
+        multipart?: Array<{
+          enabled: boolean;
+          key: string;
+          valueType: MultipartFormRow["valueType"];
+          value: string;
+          fileName?: string;
+          mimeType?: string;
+          fileData?: string;
+        }>;
       } = {
         method: resolvedRequest.method,
         url: finalUrl,
         headers: buildHeaders(resolvedRequest),
+        bodyMode: resolvedRequest.bodyMode,
       };
 
       const methodWithoutBody = payload.method === "GET";
 
-      if (!methodWithoutBody && resolvedRequest.bodyMode !== "none" && resolvedRequest.body.trim()) {
-        payload.body = resolvedRequest.body;
+      if (!methodWithoutBody && resolvedRequest.bodyMode !== "none") {
+        if (resolvedRequest.bodyMode === "multipart") {
+          const enabledRows = resolvedRequest.bodyForm
+            .filter((row) => row.enabled && row.key.trim())
+            .map((row) => ({
+              enabled: row.enabled,
+              key: row.key,
+              valueType: row.valueType,
+              value: row.value,
+              fileName: row.fileName,
+              mimeType: row.mimeType,
+              fileData: row.fileData,
+            }));
+
+          const missingFiles = enabledRows.filter(
+            (row) =>
+              row.valueType === "file" &&
+              (!row.fileData || !row.fileData.trim() || !row.fileName || !row.fileName.trim()),
+          );
+
+          if (missingFiles.length > 0) {
+            const first = missingFiles[0];
+            throw new Error(
+              `Selecione um arquivo para o campo multipart "${first.key}" antes de enviar.`,
+            );
+          }
+
+          payload.multipart = enabledRows;
+        } else if (resolvedRequest.body.trim()) {
+          payload.body = resolvedRequest.body;
+        }
       }
 
       const environmentApi = {
@@ -2816,6 +3184,8 @@ export default function CollectionDetailsPage() {
 
       if (payload.method === "GET") {
         delete payload.body;
+        delete payload.multipart;
+        payload.bodyMode = "none";
       }
 
       const response = await fetch("/api/request", {
@@ -3321,34 +3691,49 @@ export default function CollectionDetailsPage() {
                           { value: "none", label: "Sem body" },
                           { value: "json", label: "JSON" },
                           { value: "text", label: "Text" },
+                          { value: "multipart", label: "Multipart Form" },
                         ]}
                         triggerClassName="h-10 rounded-lg px-3 text-sm"
                       />
 
-                      <CodeEditor
-                        value={activeRequest.body}
-                        onChange={(nextBody) =>
-                          updateActiveRequest((request) => ({
-                            ...request,
-                            body: nextBody,
-                          }))
-                        }
-                        language={activeRequest.bodyMode === "json" ? "json" : "text"}
-                        jsonColorPreset="response"
-                        readOnly={activeRequest.bodyMode === "none"}
-                        enableJsonAutocomplete={activeRequest.bodyMode === "json"}
-                        enableTemplateAutocomplete={activeRequest.bodyMode !== "none"}
-                        templateVariables={templateVariableOptions}
-                        height={280}
-                        className={activeRequest.bodyMode === "none" ? "min-h-0 flex-1 opacity-60" : "min-h-0 flex-1"}
-                        placeholder={
-                          activeRequest.bodyMode === "none"
-                            ? "Selecione JSON ou Text para habilitar o body."
-                            : activeRequest.bodyMode === "json"
-                              ? '{\n  "name": "APInaut"\n}'
-                              : "Digite o body da requisicao."
-                        }
-                      />
+                      {activeRequest.bodyMode === "multipart" ? (
+                        <div className="min-h-0 flex-1 overflow-auto pr-1">
+                          <MultipartFormEditor
+                            rows={activeRequest.bodyForm}
+                            onChange={updateMultipartRow}
+                            onAdd={addMultipartRow}
+                            onRemove={removeMultipartRow}
+                            onFileSelect={selectMultipartFile}
+                            onTextFieldChange={handleTemplateTextFieldChange}
+                            onTextFieldKeyDown={handleTemplateTextFieldKeyDown}
+                          />
+                        </div>
+                      ) : (
+                        <CodeEditor
+                          value={activeRequest.body}
+                          onChange={(nextBody) =>
+                            updateActiveRequest((request) => ({
+                              ...request,
+                              body: nextBody,
+                            }))
+                          }
+                          language={activeRequest.bodyMode === "json" ? "json" : "text"}
+                          jsonColorPreset="response"
+                          readOnly={activeRequest.bodyMode === "none"}
+                          enableJsonAutocomplete={activeRequest.bodyMode === "json"}
+                          enableTemplateAutocomplete={activeRequest.bodyMode !== "none"}
+                          templateVariables={templateVariableOptions}
+                          height={280}
+                          className={activeRequest.bodyMode === "none" ? "min-h-0 flex-1 opacity-60" : "min-h-0 flex-1"}
+                          placeholder={
+                            activeRequest.bodyMode === "none"
+                              ? "Selecione JSON, Text ou Multipart para habilitar o body."
+                              : activeRequest.bodyMode === "json"
+                                ? '{\n  "name": "APInaut"\n}'
+                                : "Digite o body da requisicao."
+                          }
+                        />
+                      )}
                     </div>
                   )}
 
