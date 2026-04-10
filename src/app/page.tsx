@@ -9,6 +9,7 @@ import {
   useState,
   useSyncExternalStore,
   type ChangeEvent,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { dump, load } from "js-yaml";
@@ -46,9 +47,11 @@ export default function Home() {
     getCollectionsServerSnapshot,
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isImportDragActive, setIsImportDragActive] = useState(false);
   const [name, setName] = useState("");
   const [ioFeedback, setIoFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const collectionMenuRef = useRef<HTMLDivElement | null>(null);
   const [collectionMenu, setCollectionMenu] = useState<CollectionMenuState>(null);
   const [deleteCollectionTarget, setDeleteCollectionTarget] = useState<DeleteCollectionTarget>(null);
@@ -215,33 +218,107 @@ export default function Home() {
     }
   };
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
+  const closeImportModal = () => {
+    setIsImportModalOpen(false);
+    setIsImportDragActive(false);
+  };
+
+  const importCollectionsFromFiles = async (inputFiles: File[]) => {
+    const supportedFiles = inputFiles.filter((file) => {
+      const lowerName = file.name.toLowerCase();
+      return lowerName.endsWith(".json") || lowerName.endsWith(".yaml") || lowerName.endsWith(".yml");
+    });
+
+    if (supportedFiles.length === 0) {
+      throw new Error("Selecione arquivos .json, .yaml ou .yml para importar.");
+    }
+
+    const importedCollections: Collection[] = [];
+    let ignoredFilesCount = 0;
+
+    for (const file of supportedFiles) {
+      try {
+        const content = await file.text();
+        const parsedCollections = parseImportedFileContent(content, file.name);
+
+        if (!parsedCollections.length) {
+          ignoredFilesCount += 1;
+          continue;
+        }
+
+        importedCollections.push(...parsedCollections);
+      } catch {
+        ignoredFilesCount += 1;
+      }
+    }
+
+    if (importedCollections.length === 0) {
+      throw new Error("Nenhuma coleção válida encontrada nos arquivos selecionados.");
+    }
+
+    const uniqueImported = ensureUniqueCollectionIds(importedCollections, collections);
+    saveCollections([...uniqueImported, ...collections]);
+
+    const ignoredMessage =
+      ignoredFilesCount > 0 ? ` ${ignoredFilesCount} arquivo(s) incompatível(is) foram ignorados.` : "";
+    showFeedback(
+      "success",
+      `${uniqueImported.length} coleção(ões) importada(s) com sucesso.${ignoredMessage}`,
+    );
+    closeImportModal();
   };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = event.target.files ? Array.from(event.target.files) : [];
 
-    if (!file) {
+    if (files.length === 0) {
       return;
     }
 
     try {
-      const content = await file.text();
-      const imported = parseImportedFileContent(content, file.name);
-
-      if (!imported.length) {
-        throw new Error("Nenhuma coleção válida encontrada no arquivo.");
-      }
-
-      const uniqueImported = ensureUniqueCollectionIds(imported, collections);
-      saveCollections([...uniqueImported, ...collections]);
-      showFeedback("success", `${uniqueImported.length} coleção(ões) importada(s) com sucesso.`);
+      await importCollectionsFromFiles(files);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao importar arquivo.";
       showFeedback("error", message);
     } finally {
       event.target.value = "";
+    }
+  };
+
+  const handleOpenFilePicker = () => {
+    importFileInputRef.current?.click();
+  };
+
+  const handleImportDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsImportDragActive(true);
+  };
+
+  const handleImportDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+
+    setIsImportDragActive(false);
+  };
+
+  const handleImportDrop = async (event: ReactDragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsImportDragActive(false);
+
+    const droppedFiles = Array.from(event.dataTransfer.files ?? []);
+
+    if (droppedFiles.length === 0) {
+      return;
+    }
+
+    try {
+      await importCollectionsFromFiles(droppedFiles);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao importar arquivo.";
+      showFeedback("error", message);
     }
   };
 
@@ -306,15 +383,16 @@ export default function Home() {
           <h1 className="text-xl font-semibold text-white">Coleções</h1>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <input
-              ref={fileInputRef}
+              ref={importFileInputRef}
               type="file"
+              multiple
               accept=".json,.yaml,.yml,application/json,text/yaml,application/x-yaml,text/plain"
               onChange={handleImportFile}
               className="hidden"
             />
             <button
               type="button"
-              onClick={handleImportClick}
+              onClick={() => setIsImportModalOpen(true)}
               className="rounded-xl border border-white/15 bg-[#1a1728] px-4 py-3 text-sm font-semibold text-zinc-100 transition hover:bg-[#221f33]"
             >
               Importar
@@ -425,6 +503,53 @@ export default function Home() {
           >
             Deletar coleção
           </button>
+        </div>
+      )}
+
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={closeImportModal}>
+          <div
+            className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#1a1728] p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-white">Importar Coleções</h2>
+            <p className="mt-1 text-sm text-zinc-300">
+              Arraste arquivos aqui ou escolha manualmente. Formatos aceitos: JSON e YAML.
+            </p>
+
+            <div
+              onDragOver={handleImportDragOver}
+              onDragLeave={handleImportDragLeave}
+              onDrop={handleImportDrop}
+              onClick={handleOpenFilePicker}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleOpenFilePicker();
+                }
+              }}
+              className={`mt-5 min-h-[240px] cursor-pointer rounded-xl border border-dashed p-10 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70 ${
+                isImportDragActive
+                  ? "border-violet-300/60 bg-violet-500/15"
+                  : "border-white/20 bg-[#121025] hover:border-violet-300/35"
+              }`}
+            >
+              <p className="text-base font-semibold text-zinc-100">Clique ou solte os arquivos aqui</p>
+              <p className="mt-2 text-sm text-zinc-400">Você pode selecionar ou arrastar múltiplos arquivos.</p>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeImportModal}
+                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
