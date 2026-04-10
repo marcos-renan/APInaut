@@ -16,20 +16,16 @@ import {
 } from "react";
 import {
   ArrowBigLeft,
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
   Copy,
   Eye,
   EyeOff,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  Plus,
   Send,
-  Trash2,
 } from "lucide-react";
 import { CodeEditor } from "@/components/code-editor";
+import { EnvironmentModal } from "@/components/environment-modal";
+import { KeyValueEditor, MultipartFormEditor } from "@/components/request-editors";
+import { RequestTreePanel } from "@/components/request-tree-panel";
+import { StyledSelect } from "@/components/styled-select";
 import {
   ApiRequest,
   Collection,
@@ -37,10 +33,8 @@ import {
   EnvironmentVariable,
   GlobalEnvironmentsState,
   MultipartFormRow,
-  RequestTreeFolderNode,
   RequestTreeNode,
   KeyValueRow,
-  createDefaultRequest,
   getCollectionsServerSnapshot,
   getCollectionsSnapshot,
   getGlobalEnvironmentsStateServerSnapshot,
@@ -50,6 +44,56 @@ import {
   updateCollections,
   updateGlobalEnvironmentsState,
 } from "@/lib/collections";
+import {
+  buildHeaders,
+  buildUrlWithParams,
+  clampPaneWidths,
+  createEnvironmentItem,
+  createEnvironmentVariableRow,
+  createFolderNode,
+  createMultipartFormRow,
+  createRow,
+  createRequestNode,
+  escapeHtml,
+  DEFAULT_LEFT_PANEL_WIDTH,
+  DELETE_CONFIRM_TIMEOUT_MS,
+  getInitialPaneWidths,
+  METHOD_OPTIONS,
+  METHOD_STYLE_MAP,
+  MIN_CENTER_PANEL_WIDTH,
+  MIN_LAYOUT_WIDTH,
+  MIN_LEFT_PANEL_WIDTH,
+  MIN_RIGHT_PANEL_WIDTH,
+  normalizeMultipartRowsForUi,
+  normalizeRowsForUi,
+  PANE_LAYOUT_STORAGE_KEY,
+  readFileAsBase64,
+  REQUEST_CONTEXT_MENU_HEIGHT_FOLDER,
+  REQUEST_CONTEXT_MENU_HEIGHT_REQUEST,
+  REQUEST_CONTEXT_MENU_WIDTH,
+  REQUEST_CONTEXT_MENU_VIEWPORT_PADDING,
+  RESIZER_WIDTH,
+  resolveRequestWithEnvironment,
+  runUserScript,
+  TEMPLATE_SUGGESTION_MENU_HEIGHT,
+  TEMPLATE_SUGGESTION_MENU_WIDTH,
+  TEMPLATE_VARIABLE_LOOKUP_REGEX,
+  TEMPLATE_VARIABLE_TRIGGER_REGEX,
+  type PaneWidths,
+} from "@/lib/request-page-helpers";
+import {
+  findFolderPathForRequest,
+  findNodeById,
+  findRequestById,
+  hasRequestInTree,
+  insertIntoFolderById,
+  moveNodeToPosition,
+  moveNodeToTarget,
+  nodeContainsNodeId,
+  removeNodeById,
+  updateFolderInTree,
+  updateRequestInTree,
+} from "@/lib/request-tree";
 
 type RequestTab = "params" | "body" | "auth" | "headers" | "script";
 type ScriptTab = "pre-request" | "after-response";
@@ -78,6 +122,7 @@ type RequestContextMenuState = {
 type DragDropTarget =
   | { type: "root" }
   | { type: "folder"; folderId: string }
+  | { type: "position"; parentFolderId: string | null; index: number }
   | null;
 
 type TemplateSuggestionState = {
@@ -93,1065 +138,12 @@ type TemplateSuggestionState = {
   fieldElement: HTMLInputElement | HTMLTextAreaElement;
 } | null;
 
-type StyledSelectOption = {
-  value: string;
-  label: string;
-};
-
-const MIN_LEFT_PANEL_WIDTH = 140;
-const MIN_CENTER_PANEL_WIDTH = 300;
-const MIN_RIGHT_PANEL_WIDTH = 220;
-const RESIZER_WIDTH = 1;
-const MIN_LAYOUT_WIDTH =
-  MIN_LEFT_PANEL_WIDTH + MIN_CENTER_PANEL_WIDTH + MIN_RIGHT_PANEL_WIDTH + RESIZER_WIDTH * 2;
-const DELETE_CONFIRM_TIMEOUT_MS = 1500;
-const PANE_LAYOUT_STORAGE_KEY = "apinaut:request-pane-layout:v1";
-const DEFAULT_LEFT_PANEL_WIDTH = 240;
-const REQUEST_CONTEXT_MENU_WIDTH = 176;
-const REQUEST_CONTEXT_MENU_HEIGHT_REQUEST = 96;
-const REQUEST_CONTEXT_MENU_HEIGHT_FOLDER = 168;
-const REQUEST_CONTEXT_MENU_VIEWPORT_PADDING = 8;
-const REQUEST_LIST_INDENT = 16;
-const TEMPLATE_SUGGESTION_MENU_WIDTH = 320;
-const TEMPLATE_SUGGESTION_MENU_HEIGHT = 300;
-const TEMPLATE_VARIABLE_TRIGGER_REGEX = /\{\{([A-Za-z0-9_.-]*)$/;
-const TEMPLATE_VARIABLE_LOOKUP_REGEX = /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
-const METHOD_OPTIONS: ApiRequest["method"][] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-
-const METHOD_STYLE_MAP: Record<
-  ApiRequest["method"],
-  { select: string; badge: string; listActive: string; listInactive: string; optionColor: string }
-> = {
-  GET: {
-    select: "border-emerald-400/55 bg-emerald-500/15 text-emerald-200",
-    badge: "border-emerald-400/45 bg-emerald-500/15 text-emerald-200",
-    listActive: "border-emerald-300/50 bg-emerald-500/20",
-    listInactive: "border-emerald-500/20 bg-emerald-500/6 hover:bg-emerald-500/12",
-    optionColor: "#86efac",
-  },
-  POST: {
-    select: "border-yellow-400/55 bg-yellow-500/15 text-yellow-200",
-    badge: "border-yellow-400/45 bg-yellow-500/15 text-yellow-200",
-    listActive: "border-yellow-300/50 bg-yellow-500/20",
-    listInactive: "border-yellow-500/20 bg-yellow-500/6 hover:bg-yellow-500/12",
-    optionColor: "#fde68a",
-  },
-  PUT: {
-    select: "border-orange-400/55 bg-orange-500/15 text-orange-200",
-    badge: "border-orange-400/45 bg-orange-500/15 text-orange-200",
-    listActive: "border-orange-300/50 bg-orange-500/20",
-    listInactive: "border-orange-500/20 bg-orange-500/6 hover:bg-orange-500/12",
-    optionColor: "#fdba74",
-  },
-  PATCH: {
-    select: "border-violet-400/55 bg-violet-500/15 text-violet-200",
-    badge: "border-violet-400/45 bg-violet-500/15 text-violet-200",
-    listActive: "border-violet-300/50 bg-violet-500/20",
-    listInactive: "border-violet-500/20 bg-violet-500/6 hover:bg-violet-500/12",
-    optionColor: "#c4b5fd",
-  },
-  DELETE: {
-    select: "border-rose-400/55 bg-rose-500/15 text-rose-200",
-    badge: "border-rose-400/45 bg-rose-500/15 text-rose-200",
-    listActive: "border-rose-300/50 bg-rose-500/20",
-    listInactive: "border-rose-500/20 bg-rose-500/6 hover:bg-rose-500/12",
-    optionColor: "#fda4af",
-  },
-};
-
-const StyledSelect = ({
-  value,
-  onChange,
-  options,
-  placeholder = "Selecionar",
-  containerClassName = "",
-  triggerClassName = "",
-  menuClassName = "",
-  optionClassName = "",
-}: {
-  value: string;
-  onChange: (nextValue: string) => void;
-  options: StyledSelectOption[];
-  placeholder?: string;
-  containerClassName?: string;
-  triggerClassName?: string;
-  menuClassName?: string;
-  optionClassName?: string;
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const selectedOption = options.find((option) => option.value === value) ?? null;
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (
-        containerRef.current &&
-        event.target instanceof Node &&
-        containerRef.current.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsOpen(false);
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    };
-
-    const handleScroll = () => {
-      setIsOpen(false);
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleEscape);
-    window.addEventListener("scroll", handleScroll, true);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleEscape);
-      window.removeEventListener("scroll", handleScroll, true);
-    };
-  }, [isOpen]);
-
-  return (
-    <div ref={containerRef} className={`relative ${containerClassName}`}>
-      <button
-        type="button"
-        onClick={() => setIsOpen((current) => !current)}
-        className={`flex w-full items-center justify-between rounded-md border border-violet-300/45 bg-violet-500/15 px-2 text-xs font-medium text-violet-100 outline-none ring-violet-400 transition hover:bg-violet-500/25 focus:ring-2 ${triggerClassName}`}
-      >
-        <span className="truncate">{selectedOption?.label ?? placeholder}</span>
-        <ChevronDown className={`ml-2 h-4 w-4 shrink-0 transition ${isOpen ? "rotate-180" : ""}`} />
-      </button>
-
-      {isOpen && (
-        <div
-          className={`absolute right-0 top-[calc(100%+6px)] z-40 w-full overflow-hidden rounded-lg border border-white/15 bg-[#1a1728] p-1 shadow-[0_10px_26px_rgba(0,0,0,0.45)] ${menuClassName}`}
-        >
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
-              className={`w-full rounded-md px-3 py-2 text-left text-sm transition ${
-                option.value === value
-                  ? "bg-violet-500/35 text-violet-50"
-                  : "text-zinc-100 hover:bg-white/10"
-              } ${optionClassName}`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-type PaneWidths = {
-  left: number;
-  right: number;
-};
-
-const clampPaneWidths = (containerWidth: number, left: number, right: number): PaneWidths => {
-  const totalHandleWidth = RESIZER_WIDTH * 2;
-  const maxLeft = Math.max(
-    MIN_LEFT_PANEL_WIDTH,
-    containerWidth - MIN_RIGHT_PANEL_WIDTH - MIN_CENTER_PANEL_WIDTH - totalHandleWidth,
-  );
-  const nextLeft = Math.min(Math.max(left, MIN_LEFT_PANEL_WIDTH), maxLeft);
-
-  const maxRight = Math.max(
-    MIN_RIGHT_PANEL_WIDTH,
-    containerWidth - nextLeft - MIN_CENTER_PANEL_WIDTH - totalHandleWidth,
-  );
-  const nextRight = Math.min(Math.max(right, MIN_RIGHT_PANEL_WIDTH), maxRight);
-
-  return {
-    left: nextLeft,
-    right: nextRight,
-  };
-};
-
-const getInitialPaneWidths = (): PaneWidths => {
-  if (typeof window === "undefined") {
-    return {
-      left: DEFAULT_LEFT_PANEL_WIDTH,
-      right: 560,
-    };
-  }
-
-  const fallback = clampPaneWidths(window.innerWidth, DEFAULT_LEFT_PANEL_WIDTH, window.innerWidth * 0.5);
-
-  try {
-    const raw = window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
-
-    if (!raw) {
-      return fallback;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<PaneWidths>;
-
-    if (typeof parsed.left !== "number" || typeof parsed.right !== "number") {
-      return fallback;
-    }
-
-    return clampPaneWidths(window.innerWidth, parsed.left, parsed.right);
-  } catch {
-    return fallback;
-  }
-};
-
-const createRow = (): KeyValueRow => ({
-  id: crypto.randomUUID(),
-  enabled: true,
-  key: "",
-  value: "",
-});
-
-const createMultipartFormRow = (): MultipartFormRow => ({
-  id: crypto.randomUUID(),
-  enabled: true,
-  key: "",
-  valueType: "text",
-  value: "",
-});
-
-const normalizeRowsForUi = (rows: KeyValueRow[]): KeyValueRow[] => {
-  if (!rows.length) {
-    return [createRow()];
-  }
-
-      return rows.map((row) => ({
-    ...row,
-    id: row.id || crypto.randomUUID(),
-  }));
-};
-
-const normalizeMultipartRowsForUi = (rows: MultipartFormRow[]): MultipartFormRow[] => {
-  if (!rows.length) {
-    return [createMultipartFormRow()];
-  }
-
-  return rows.map((row) => ({
-    ...row,
-    id: row.id || crypto.randomUUID(),
-    valueType: row.valueType === "file" ? "file" : "text",
-  }));
-};
-
-const createRequestForUi = (name: string): ApiRequest => ({
-  ...createDefaultRequest(name),
-  params: [createRow()],
-  headers: [createRow()],
-  bodyForm: [createMultipartFormRow()],
-});
-
-const createRequestNode = (name = "New Request"): RequestTreeNode => {
-  const request = createRequestForUi(name);
-
-  return {
-    id: request.id,
-    type: "request",
-    request,
-  };
-};
-
-const createFolderNode = (name = "New Folder"): RequestTreeFolderNode => ({
-  id: crypto.randomUUID(),
-  type: "folder",
-  name,
-  children: [],
-});
-
-const createEnvironmentVariableRow = (): EnvironmentVariable => ({
-  id: crypto.randomUUID(),
-  enabled: true,
-  key: "",
-  value: "",
-});
-
-const createEnvironmentItem = (name = "Default"): Environment => ({
-  id: crypto.randomUUID(),
-  name,
-  variables: [],
-});
-
-const hasRequestInTree = (tree: RequestTreeNode[], requestId: string | null): boolean => {
-  if (!requestId) {
-    return false;
-  }
-
-  for (const node of tree) {
-    if (node.type === "request") {
-      if (node.id === requestId) {
-        return true;
-      }
-      continue;
-    }
-
-    if (hasRequestInTree(node.children, requestId)) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-const findFolderPathForRequest = (
-  tree: RequestTreeNode[],
-  requestId: string,
-  trail: string[] = [],
-): string[] | null => {
-  for (const node of tree) {
-    if (node.type === "request") {
-      if (node.id === requestId) {
-        return trail;
-      }
-      continue;
-    }
-
-    const nested = findFolderPathForRequest(node.children, requestId, [...trail, node.id]);
-
-    if (nested) {
-      return nested;
-    }
-  }
-
-  return null;
-};
-
-const findRequestById = (tree: RequestTreeNode[], requestId: string | null): ApiRequest | null => {
-  if (!requestId) {
-    return null;
-  }
-
-  for (const node of tree) {
-    if (node.type === "request") {
-      if (node.id === requestId) {
-        return node.request;
-      }
-      continue;
-    }
-
-    const nested = findRequestById(node.children, requestId);
-
-    if (nested) {
-      return nested;
-    }
-  }
-
-  return null;
-};
-
-const findNodeById = (tree: RequestTreeNode[], nodeId: string | null): RequestTreeNode | null => {
-  if (!nodeId) {
-    return null;
-  }
-
-  for (const node of tree) {
-    if (node.id === nodeId) {
-      return node;
-    }
-
-    if (node.type === "folder") {
-      const nested = findNodeById(node.children, nodeId);
-
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-
-  return null;
-};
-
-const updateRequestInTree = (
-  tree: RequestTreeNode[],
-  requestId: string,
-  updater: (request: ApiRequest) => ApiRequest,
-): RequestTreeNode[] =>
-  tree.map((node) => {
-    if (node.type === "request") {
-      if (node.id !== requestId) {
-        return node;
-      }
-
-      const nextRequest = updater(node.request);
-
-      return {
-        ...node,
-        id: nextRequest.id,
-        request: nextRequest,
-      };
-    }
-
-    return {
-      ...node,
-      children: updateRequestInTree(node.children, requestId, updater),
-    };
-  });
-
-const updateFolderInTree = (
-  tree: RequestTreeNode[],
-  folderId: string,
-  updater: (folder: RequestTreeFolderNode) => RequestTreeFolderNode,
-): RequestTreeNode[] =>
-  tree.map((node) => {
-    if (node.type !== "folder") {
-      return node;
-    }
-
-    if (node.id === folderId) {
-      return updater(node);
-    }
-
-    return {
-      ...node,
-      children: updateFolderInTree(node.children, folderId, updater),
-    };
-  });
-
-const removeNodeById = (
-  tree: RequestTreeNode[],
-  nodeId: string,
-): { tree: RequestTreeNode[]; removed: RequestTreeNode | null } => {
-  let removed: RequestTreeNode | null = null;
-
-  const nextTree = tree.reduce<RequestTreeNode[]>((accumulator, node) => {
-    if (node.id === nodeId) {
-      removed = node;
-      return accumulator;
-    }
-
-    if (node.type === "folder") {
-      const nested = removeNodeById(node.children, nodeId);
-
-      if (nested.removed) {
-        removed = nested.removed;
-
-        accumulator.push({
-          ...node,
-          children: nested.tree,
-        });
-
-        return accumulator;
-      }
-    }
-
-    accumulator.push(node);
-    return accumulator;
-  }, []);
-
-  return {
-    tree: nextTree,
-    removed,
-  };
-};
-
-const insertIntoFolderById = (
-  tree: RequestTreeNode[],
-  folderId: string,
-  nodeToInsert: RequestTreeNode,
-): { tree: RequestTreeNode[]; inserted: boolean } => {
-  let inserted = false;
-
-  const nextTree = tree.map((node) => {
-    if (node.type !== "folder") {
-      return node;
-    }
-
-    if (node.id === folderId) {
-      inserted = true;
-      return {
-        ...node,
-        children: [...node.children, nodeToInsert],
-      };
-    }
-
-    const nested = insertIntoFolderById(node.children, folderId, nodeToInsert);
-
-    if (nested.inserted) {
-      inserted = true;
-      return {
-        ...node,
-        children: nested.tree,
-      };
-    }
-
-    return node;
-  });
-
-  return {
-    tree: nextTree,
-    inserted,
-  };
-};
-
-const nodeContainsNodeId = (node: RequestTreeNode, targetNodeId: string): boolean => {
-  if (node.id === targetNodeId) {
-    return true;
-  }
-
-  if (node.type !== "folder") {
-    return false;
-  }
-
-  return node.children.some((child) => nodeContainsNodeId(child, targetNodeId));
-};
-
-const moveNodeToTarget = (
-  tree: RequestTreeNode[],
-  sourceNodeId: string,
-  targetFolderId: string | null,
-): RequestTreeNode[] => {
-  const removedSource = removeNodeById(tree, sourceNodeId);
-
-  if (!removedSource.removed) {
-    return tree;
-  }
-
-  const movingNode = removedSource.removed;
-
-  if (targetFolderId === null) {
-    return [...removedSource.tree, movingNode];
-  }
-
-  if (nodeContainsNodeId(movingNode, targetFolderId)) {
-    return tree;
-  }
-
-  const inserted = insertIntoFolderById(removedSource.tree, targetFolderId, movingNode);
-
-  if (!inserted.inserted) {
-    return tree;
-  }
-
-  return inserted.tree;
-};
-
-const interpolateTemplateValue = (value: string, variables: Record<string, string>) =>
-  value.replace(TEMPLATE_VARIABLE_LOOKUP_REGEX, (match, variableName: string) =>
-    Object.prototype.hasOwnProperty.call(variables, variableName) ? variables[variableName] : match,
-  );
-
-const interpolateRows = (rows: KeyValueRow[], variables: Record<string, string>): KeyValueRow[] =>
-  rows.map((row) => ({
-    ...row,
-    key: interpolateTemplateValue(row.key, variables),
-    value: interpolateTemplateValue(row.value, variables),
-  }));
-
-const resolveRequestWithEnvironment = (
-  request: ApiRequest,
-  variables: Record<string, string>,
-): ApiRequest => ({
-  ...request,
-  url: interpolateTemplateValue(request.url, variables),
-  params: interpolateRows(request.params, variables),
-  headers: interpolateRows(request.headers, variables),
-  body: interpolateTemplateValue(request.body, variables),
-  bodyForm: request.bodyForm.map((row) => ({
-    ...row,
-    key: interpolateTemplateValue(row.key, variables),
-    value: row.valueType === "text" ? interpolateTemplateValue(row.value, variables) : row.value,
-  })),
-  bearerToken: interpolateTemplateValue(request.bearerToken, variables),
-  basicUsername: interpolateTemplateValue(request.basicUsername, variables),
-  basicPassword: interpolateTemplateValue(request.basicPassword, variables),
-  preRequestScript: interpolateTemplateValue(request.preRequestScript, variables),
-  afterResponseScript: interpolateTemplateValue(request.afterResponseScript, variables),
-});
-
-const buildUrlWithParams = (baseUrl: string, params: KeyValueRow[]) => {
-  const url = new URL(baseUrl);
-
-  for (const item of params) {
-    if (!item.enabled) {
-      continue;
-    }
-
-    const key = item.key.trim();
-
-    if (!key) {
-      continue;
-    }
-
-    url.searchParams.set(key, item.value);
-  }
-
-  return url.toString();
-};
-
-const buildHeaders = (request: ApiRequest): Record<string, string> => {
-  const headers: Record<string, string> = {};
-
-  for (const item of request.headers) {
-    if (!item.enabled) {
-      continue;
-    }
-
-    const key = item.key.trim();
-
-    if (!key) {
-      continue;
-    }
-
-    headers[key] = item.value;
-  }
-
-  if (request.authType === "bearer" && request.bearerToken.trim()) {
-    headers.Authorization = `Bearer ${request.bearerToken.trim()}`;
-  }
-
-  if (request.authType === "basic" && request.basicUsername) {
-    const encoded = btoa(`${request.basicUsername}:${request.basicPassword}`);
-    headers.Authorization = `Basic ${encoded}`;
-  }
-
-  if (request.bodyMode === "json" && request.body.trim() && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  if (request.bodyMode === "multipart") {
-    for (const key of Object.keys(headers)) {
-      if (key.toLowerCase() === "content-type") {
-        delete headers[key];
-      }
-    }
-  }
-
-  return headers;
-};
-
-const runUserScript = (scriptCode: string, bindings: Record<string, unknown>) => {
-  if (!scriptCode.trim()) {
-    return;
-  }
-
-  const bindingNames = Object.keys(bindings);
-  const bindingValues = Object.values(bindings);
-  const execute = new Function(...bindingNames, `"use strict";\n${scriptCode}`);
-  execute(...bindingValues);
-};
-
-const escapeHtml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-
-const readFileAsBase64 = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      const commaIndex = result.indexOf(",");
-      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : "");
-    };
-
-    reader.onerror = () => {
-      reject(reader.error ?? new Error("Falha ao ler arquivo."));
-    };
-
-    reader.readAsDataURL(file);
-  });
-
-const KeyValueEditor = ({
-  rows,
-  onChange,
-  onAdd,
-  onRemove,
-  onTextFieldChange,
-  onTextFieldKeyDown,
-}: {
-  rows: KeyValueRow[];
-  onChange: (id: string, field: keyof KeyValueRow, value: string | boolean) => void;
-  onAdd: () => void;
-  onRemove: (id: string) => void;
-  onTextFieldChange?: (
-    event: ReactChangeEvent<HTMLInputElement>,
-    applyValue: (nextValue: string) => void,
-  ) => void;
-  onTextFieldKeyDown?: (
-    event: ReactKeyboardEvent<HTMLInputElement>,
-    currentValue: string,
-    applyValue: (nextValue: string) => void,
-  ) => void;
-}) => {
-  const [pendingDeleteRowId, setPendingDeleteRowId] = useState<string | null>(null);
-  const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (deleteConfirmTimeoutRef.current) {
-        clearTimeout(deleteConfirmTimeoutRef.current);
-      }
-    },
-    [],
-  );
-
-  const handleRemoveClick = (rowId: string) => {
-    if (pendingDeleteRowId === rowId) {
-      if (deleteConfirmTimeoutRef.current) {
-        clearTimeout(deleteConfirmTimeoutRef.current);
-      }
-
-      deleteConfirmTimeoutRef.current = null;
-      setPendingDeleteRowId(null);
-      onRemove(rowId);
-      return;
-    }
-
-    if (deleteConfirmTimeoutRef.current) {
-      clearTimeout(deleteConfirmTimeoutRef.current);
-    }
-
-    setPendingDeleteRowId(rowId);
-
-    deleteConfirmTimeoutRef.current = setTimeout(() => {
-      setPendingDeleteRowId((current) => (current === rowId ? null : current));
-      deleteConfirmTimeoutRef.current = null;
-    }, DELETE_CONFIRM_TIMEOUT_MS);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-        <span>Ativo</span>
-        <span>Chave</span>
-        <span>Valor</span>
-        <span>Acao</span>
-      </div>
-
-      {rows.map((row) => {
-        const isDeletePending = pendingDeleteRowId === row.id;
-
-        return (
-          <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]">
-            <button
-              type="button"
-              onClick={() => onChange(row.id, "enabled", !row.enabled)}
-              className={`flex h-10 items-center justify-center rounded-lg border transition ${
-                row.enabled
-                  ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
-                  : "border-white/15 bg-[#121025] hover:bg-white/10"
-              }`}
-              aria-pressed={row.enabled}
-              aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
-              title={row.enabled ? "Desativar linha" : "Ativar linha"}
-            >
-              <span
-                className={`relative h-5 w-9 rounded-full transition ${
-                  row.enabled ? "bg-emerald-500" : "bg-zinc-700"
-                }`}
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                    row.enabled ? "translate-x-4" : ""
-                  }`}
-                />
-              </span>
-            </button>
-            <input
-              value={row.key}
-              onChange={(event) => {
-                const apply = (nextValue: string) => onChange(row.id, "key", nextValue);
-
-                if (onTextFieldChange) {
-                  onTextFieldChange(event, apply);
-                  return;
-                }
-
-                apply(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                onTextFieldKeyDown?.(event, row.key, (nextValue) => onChange(row.id, "key", nextValue));
-              }}
-              className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-              placeholder="authorization"
-            />
-            <input
-              value={row.value}
-              onChange={(event) => {
-                const apply = (nextValue: string) => onChange(row.id, "value", nextValue);
-
-                if (onTextFieldChange) {
-                  onTextFieldChange(event, apply);
-                  return;
-                }
-
-                apply(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                onTextFieldKeyDown?.(event, row.value, (nextValue) => onChange(row.id, "value", nextValue));
-              }}
-              className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-              placeholder="valor"
-            />
-            <button
-              type="button"
-              onClick={() => handleRemoveClick(row.id)}
-              className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
-                isDeletePending
-                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-              }`}
-              aria-label={isDeletePending ? "Clique novamente para remover linha" : "Remover linha"}
-              title={isDeletePending ? "Clique novamente para remover" : "Remover linha"}
-            >
-              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-            </button>
-          </div>
-        );
-      })}
-
-      <button
-        type="button"
-        onClick={onAdd}
-        className="rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
-      >
-        + Adicionar linha
-      </button>
-    </div>
-  );
-};
-
-const MultipartFormEditor = ({
-  rows,
-  onChange,
-  onAdd,
-  onRemove,
-  onFileSelect,
-  onTextFieldChange,
-  onTextFieldKeyDown,
-}: {
-  rows: MultipartFormRow[];
-  onChange: (id: string, field: keyof MultipartFormRow, value: string | boolean) => void;
-  onAdd: () => void;
-  onRemove: (id: string) => void;
-  onFileSelect: (id: string, file: File | null) => void;
-  onTextFieldChange?: (
-    event: ReactChangeEvent<HTMLInputElement>,
-    applyValue: (nextValue: string) => void,
-  ) => void;
-  onTextFieldKeyDown?: (
-    event: ReactKeyboardEvent<HTMLInputElement>,
-    currentValue: string,
-    applyValue: (nextValue: string) => void,
-  ) => void;
-}) => {
-  const [pendingDeleteRowId, setPendingDeleteRowId] = useState<string | null>(null);
-  const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
-  useEffect(
-    () => () => {
-      if (deleteConfirmTimeoutRef.current) {
-        clearTimeout(deleteConfirmTimeoutRef.current);
-      }
-    },
-    [],
-  );
-
-  const handleRemoveClick = (rowId: string) => {
-    if (pendingDeleteRowId === rowId) {
-      if (deleteConfirmTimeoutRef.current) {
-        clearTimeout(deleteConfirmTimeoutRef.current);
-      }
-
-      deleteConfirmTimeoutRef.current = null;
-      setPendingDeleteRowId(null);
-      onRemove(rowId);
-      return;
-    }
-
-    if (deleteConfirmTimeoutRef.current) {
-      clearTimeout(deleteConfirmTimeoutRef.current);
-    }
-
-    setPendingDeleteRowId(rowId);
-
-    deleteConfirmTimeoutRef.current = setTimeout(() => {
-      setPendingDeleteRowId((current) => (current === rowId ? null : current));
-      deleteConfirmTimeoutRef.current = null;
-    }, DELETE_CONFIRM_TIMEOUT_MS);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="hidden grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-        <span>Ativo</span>
-        <span>Chave</span>
-        <span>Tipo</span>
-        <span>Valor</span>
-        <span>Acao</span>
-      </div>
-
-      {rows.map((row) => {
-        const isDeletePending = pendingDeleteRowId === row.id;
-        const fileLabel = row.fileName?.trim() || row.value.trim() || "Selecionar arquivo";
-
-        return (
-          <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px]">
-            <button
-              type="button"
-              onClick={() => onChange(row.id, "enabled", !row.enabled)}
-              className={`flex h-10 items-center justify-center rounded-lg border transition ${
-                row.enabled
-                  ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
-                  : "border-white/15 bg-[#121025] hover:bg-white/10"
-              }`}
-              aria-pressed={row.enabled}
-              aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
-              title={row.enabled ? "Desativar linha" : "Ativar linha"}
-            >
-              <span
-                className={`relative h-5 w-9 rounded-full transition ${
-                  row.enabled ? "bg-emerald-500" : "bg-zinc-700"
-                }`}
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                    row.enabled ? "translate-x-4" : ""
-                  }`}
-                />
-              </span>
-            </button>
-
-            <input
-              value={row.key}
-              onChange={(event) => {
-                const apply = (nextValue: string) => onChange(row.id, "key", nextValue);
-
-                if (onTextFieldChange) {
-                  onTextFieldChange(event, apply);
-                  return;
-                }
-
-                apply(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                onTextFieldKeyDown?.(event, row.key, (nextValue) => onChange(row.id, "key", nextValue));
-              }}
-              className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-              placeholder="field"
-            />
-
-            <StyledSelect
-              value={row.valueType}
-              onChange={(nextValue) => {
-                const nextType = nextValue === "file" ? "file" : "text";
-
-                if (nextType === "text") {
-                  onChange(row.id, "valueType", "text");
-                  onChange(row.id, "value", "");
-                  onChange(row.id, "fileName", "");
-                  onChange(row.id, "mimeType", "");
-                  onChange(row.id, "fileData", "");
-                  return;
-                }
-
-                onChange(row.id, "valueType", "file");
-              }}
-              options={[
-                { value: "text", label: "Text" },
-                { value: "file", label: "File" },
-              ]}
-              containerClassName="w-full"
-              triggerClassName="h-10 rounded-lg px-3 text-sm"
-            />
-
-            {row.valueType === "file" ? (
-              <div className="min-w-0">
-                <input
-                  ref={(element) => {
-                    fileInputRefs.current[row.id] = element;
-                  }}
-                  type="file"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
-                    onFileSelect(row.id, file);
-                    event.target.value = "";
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRefs.current[row.id]?.click()}
-                  className="h-10 w-full truncate rounded-lg border border-white/15 bg-[#121025] px-3 text-left text-sm text-zinc-200 transition hover:bg-white/10"
-                  title={fileLabel}
-                >
-                  {fileLabel}
-                </button>
-              </div>
-            ) : (
-              <input
-                value={row.value}
-                onChange={(event) => {
-                  const apply = (nextValue: string) => onChange(row.id, "value", nextValue);
-
-                  if (onTextFieldChange) {
-                    onTextFieldChange(event, apply);
-                    return;
-                  }
-
-                  apply(event.target.value);
-                }}
-                onKeyDown={(event) => {
-                  onTextFieldKeyDown?.(event, row.value, (nextValue) => onChange(row.id, "value", nextValue));
-                }}
-                className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-                placeholder="value"
-              />
-            )}
-
-            <button
-              type="button"
-              onClick={() => handleRemoveClick(row.id)}
-              className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
-                isDeletePending
-                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-              }`}
-              aria-label={isDeletePending ? "Clique novamente para remover linha" : "Remover linha"}
-              title={isDeletePending ? "Clique novamente para remover" : "Remover linha"}
-            >
-              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-            </button>
-          </div>
-        );
-      })}
-
-      <button
-        type="button"
-        onClick={onAdd}
-        className="rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
-      >
-        + Adicionar campo
-      </button>
-    </div>
-  );
-};
-
 export default function CollectionDetailsPage() {
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const requestContextMenuRef = useRef<HTMLDivElement | null>(null);
   const templateSuggestionRef = useRef<HTMLDivElement | null>(null);
+  const draggingNodeIdRef = useRef<string | null>(null);
   const initialPaneWidthsRef = useRef<PaneWidths>(getInitialPaneWidths());
   const collections = useSyncExternalStore(
     subscribeCollections,
@@ -1219,6 +211,22 @@ export default function CollectionDetailsPage() {
 
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const clearDragState = () => {
+      draggingNodeIdRef.current = null;
+      setDraggingNodeId(null);
+      setDragDropTarget(null);
+    };
+
+    window.addEventListener("dragend", clearDragState);
+    window.addEventListener("drop", clearDragState);
+
+    return () => {
+      window.removeEventListener("dragend", clearDragState);
+      window.removeEventListener("drop", clearDragState);
+    };
   }, []);
 
   useEffect(
@@ -2615,23 +1623,48 @@ export default function CollectionDetailsPage() {
 
   const beginDragNode = (nodeId: string) => (event: ReactDragEvent<HTMLElement>) => {
     event.stopPropagation();
+    draggingNodeIdRef.current = nodeId;
     setDraggingNodeId(nodeId);
     setDragDropTarget(null);
     event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-apinaut-node-id", nodeId);
     event.dataTransfer.setData("text/plain", nodeId);
   };
 
   const endDragNode = () => {
+    draggingNodeIdRef.current = null;
     setDraggingNodeId(null);
     setDragDropTarget(null);
   };
 
-  const commitDrop = (targetFolderId: string | null) => {
-    if (!draggingNodeId) {
+  const resolveDraggingNodeId = (event?: ReactDragEvent<HTMLElement>) => {
+    if (draggingNodeIdRef.current) {
+      return draggingNodeIdRef.current;
+    }
+
+    if (draggingNodeId) {
+      return draggingNodeId;
+    }
+
+    if (!event) {
+      return null;
+    }
+
+    const transferId =
+      event.dataTransfer.getData("application/x-apinaut-node-id") ||
+      event.dataTransfer.getData("text/plain");
+
+    return transferId.trim() ? transferId.trim() : null;
+  };
+
+  const commitDrop = (targetFolderId: string | null, sourceNodeId?: string | null) => {
+    const draggingId = sourceNodeId ?? resolveDraggingNodeId();
+
+    if (!draggingId) {
       return;
     }
 
-    updateCollectionTree((tree) => moveNodeToTarget(tree, draggingNodeId, targetFolderId));
+    updateCollectionTree((tree) => moveNodeToTarget(tree, draggingId, targetFolderId));
 
     if (targetFolderId) {
       setExpandedFolderIds((current) =>
@@ -2639,48 +1672,199 @@ export default function CollectionDetailsPage() {
       );
     }
 
+    draggingNodeIdRef.current = null;
+    setDragDropTarget(null);
+    setDraggingNodeId(null);
+  };
+
+  const commitDropAtPosition = (
+    targetParentFolderId: string | null,
+    index: number,
+    sourceNodeId?: string | null,
+  ) => {
+    const draggingId = sourceNodeId ?? resolveDraggingNodeId();
+
+    if (!draggingId) {
+      return;
+    }
+
+    updateCollectionTree((tree) =>
+      moveNodeToPosition(tree, draggingId, targetParentFolderId, index),
+    );
+
+    if (targetParentFolderId) {
+      setExpandedFolderIds((current) =>
+        current.includes(targetParentFolderId) ? current : [...current, targetParentFolderId],
+      );
+    }
+
+    draggingNodeIdRef.current = null;
     setDragDropTarget(null);
     setDraggingNodeId(null);
   };
 
   const dragOverRoot = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!draggingNodeId) {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
     setDragDropTarget({ type: "root" });
   };
 
   const dropOnRoot = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!draggingNodeId) {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    commitDrop(null);
+    commitDrop(null, draggingId);
   };
 
-  const dragOverFolder = (event: ReactDragEvent<HTMLButtonElement>, folderId: string) => {
-    if (!draggingNodeId) {
+  const dragOverFolder = (
+    event: ReactDragEvent<HTMLElement>,
+    parentFolderId: string | null,
+    index: number,
+    folderId: string,
+  ) => {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeY = event.clientY - rect.top;
+    const ratio = rect.height > 0 ? relativeY / rect.height : 0.5;
+
+    if (ratio <= 0.25) {
+      setDragDropTarget({ type: "position", parentFolderId, index });
+      return;
+    }
+
+    if (ratio >= 0.75) {
+      setDragDropTarget({ type: "position", parentFolderId, index: index + 1 });
+      return;
+    }
+
     setDragDropTarget({ type: "folder", folderId });
   };
 
-  const dropOnFolder = (event: ReactDragEvent<HTMLButtonElement>, folderId: string) => {
-    if (!draggingNodeId) {
+  const dropOnFolder = (
+    event: ReactDragEvent<HTMLElement>,
+    parentFolderId: string | null,
+    index: number,
+    folderId: string,
+  ) => {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    commitDrop(folderId);
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeY = event.clientY - rect.top;
+    const ratio = rect.height > 0 ? relativeY / rect.height : 0.5;
+
+    if (ratio <= 0.25) {
+      commitDropAtPosition(parentFolderId, index, draggingId);
+      return;
+    }
+
+    if (ratio >= 0.75) {
+      commitDropAtPosition(parentFolderId, index + 1, draggingId);
+      return;
+    }
+
+    commitDrop(folderId, draggingId);
+  };
+
+  const dragOverRequest = (
+    event: ReactDragEvent<HTMLElement>,
+    parentFolderId: string | null,
+    index: number,
+  ) => {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeY = event.clientY - rect.top;
+    const targetIndex = relativeY < rect.height / 2 ? index : index + 1;
+    setDragDropTarget({ type: "position", parentFolderId, index: targetIndex });
+  };
+
+  const dropOnRequest = (
+    event: ReactDragEvent<HTMLElement>,
+    parentFolderId: string | null,
+    index: number,
+  ) => {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeY = event.clientY - rect.top;
+    const targetIndex = relativeY < rect.height / 2 ? index : index + 1;
+    commitDropAtPosition(parentFolderId, targetIndex, draggingId);
+  };
+
+  const dragOverPosition = (
+    event: ReactDragEvent<HTMLDivElement>,
+    parentFolderId: string | null,
+    index: number,
+  ) => {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setDragDropTarget({ type: "position", parentFolderId, index });
+  };
+
+  const dropOnPosition = (
+    event: ReactDragEvent<HTMLDivElement>,
+    parentFolderId: string | null,
+    index: number,
+  ) => {
+    const draggingId = resolveDraggingNodeId(event);
+
+    if (!draggingId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    commitDropAtPosition(parentFolderId, index, draggingId);
   };
 
   const openRequestContextMenu = (event: ReactMouseEvent<HTMLDivElement>, nodeId: string) => {
@@ -3279,143 +2463,6 @@ export default function CollectionDetailsPage() {
     minWidth: `${MIN_LAYOUT_WIDTH}px`,
   } as CSSProperties;
 
-  const renderRequestTreeNodes = (nodes: RequestTreeNode[], depth = 0) =>
-    nodes.map((node) => {
-      const rowIndentStyle = {
-        paddingLeft: `${depth * REQUEST_LIST_INDENT}px`,
-      };
-
-      if (node.type === "folder") {
-        const isExpanded = expandedFolderIds.includes(node.id);
-        const isDropTarget = dragDropTarget?.type === "folder" && dragDropTarget.folderId === node.id;
-        const isEditingFolder = editingFolderId === node.id;
-
-        return (
-          <div key={node.id} className="space-y-1">
-            <div
-              style={rowIndentStyle}
-              onContextMenu={(event) => openRequestContextMenu(event, node.id)}
-            >
-              <button
-                type="button"
-                draggable={!isEditingFolder}
-                onDragStart={beginDragNode(node.id)}
-                onDragEnd={endDragNode}
-                onDragOver={(event) => dragOverFolder(event, node.id)}
-                onDrop={(event) => dropOnFolder(event, node.id)}
-                onClick={() => toggleFolderExpanded(node.id)}
-                onDoubleClick={() => startEditingFolderName(node.id, node.name)}
-                className={`flex h-10 w-full items-center gap-2 rounded-lg border px-2 text-left text-sm transition ${
-                  isDropTarget
-                    ? "border-violet-300/60 bg-violet-500/25"
-                    : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
-                }`}
-              >
-                <ChevronRight
-                  className={`h-4 w-4 shrink-0 text-zinc-300 transition ${isExpanded ? "rotate-90" : ""}`}
-                />
-                {isExpanded ? (
-                  <FolderOpen className="h-4 w-4 shrink-0 text-violet-200" />
-                ) : (
-                  <Folder className="h-4 w-4 shrink-0 text-violet-200" />
-                )}
-                {!isEditingFolder && <span className="truncate font-medium text-zinc-100">{node.name}</span>}
-              </button>
-
-              {isEditingFolder && (
-                <input
-                  autoFocus
-                  value={editingFolderName}
-                  onChange={(event) => setEditingFolderName(event.target.value)}
-                  onBlur={commitEditingFolderName}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      commitEditingFolderName();
-                      return;
-                    }
-
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      cancelEditingFolderName();
-                    }
-                  }}
-                  className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                  placeholder="Nome da pasta"
-                />
-              )}
-            </div>
-
-            {isExpanded && node.children.length > 0 && (
-              <div className="space-y-1">{renderRequestTreeNodes(node.children, depth + 1)}</div>
-            )}
-          </div>
-        );
-      }
-
-      const request = node.request;
-      const isEditing = editingRequestId === request.id;
-
-      return (
-        <div key={request.id} style={rowIndentStyle}>
-          <div
-            onContextMenu={(event) => openRequestContextMenu(event, request.id)}
-            className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-              activeRequestId === request.id
-                ? METHOD_STYLE_MAP[request.method].listActive
-                : METHOD_STYLE_MAP[request.method].listInactive
-            }`}
-          >
-            <button
-              type="button"
-              draggable={!isEditing}
-              onDragStart={beginDragNode(request.id)}
-              onDragEnd={endDragNode}
-              onClick={() => selectRequest(request.id)}
-              onDoubleClick={() => startEditingRequestName(request.id, request.name)}
-              className="w-full text-left"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
-                    METHOD_STYLE_MAP[request.method].badge
-                  }`}
-                >
-                  {request.method}
-                </span>
-                {!isEditing && (
-                  <span className="min-w-0 flex-1 truncate font-medium text-zinc-100">{request.name}</span>
-                )}
-              </div>
-            </button>
-
-            {isEditing && (
-              <input
-                autoFocus
-                value={editingRequestName}
-                onChange={(event) => setEditingRequestName(event.target.value)}
-                onBlur={commitEditingRequestName}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    commitEditingRequestName();
-                    return;
-                  }
-
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    cancelEditingRequestName();
-                  }
-                }}
-                className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                placeholder="Nome da requisicao"
-              />
-            )}
-          </div>
-        </div>
-      );
-    });
-
   return (
     <main className="h-full min-h-full overflow-hidden bg-[#100e1a] text-white">
       <div className="flex h-full w-full flex-col overflow-hidden">
@@ -3475,57 +2522,41 @@ export default function CollectionDetailsPage() {
             className="grid h-full min-h-0 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
             style={desktopGridStyle}
           >
-          <aside className="min-h-0 overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3">
-            <div className="mb-3 flex items-center justify-between px-3">
-              <h2 className="text-sm font-medium text-zinc-300">Requisicoes</h2>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={createFolder}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
-                  aria-label="Criar nova pasta"
-                  title="Criar nova pasta"
-                >
-                  <FolderPlus className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={createRequest}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
-                  aria-label="Criar nova requisicao"
-                  title="Criar nova requisicao"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            <div
-              className={`mx-3 mb-2 flex h-9 items-center justify-center rounded-lg border border-dashed text-xs font-medium transition ${
-                dragDropTarget?.type === "root"
-                  ? "border-violet-300/70 bg-violet-500/20 text-violet-100"
-                  : "border-white/20 bg-[#121025] text-zinc-400"
-              }`}
-              onDragOver={dragOverRoot}
-              onDrop={dropOnRoot}
-            >
-              Soltar na raiz
-            </div>
-            <div
-              className={`space-y-2 rounded-lg ${
-                dragDropTarget?.type === "root" ? "ring-1 ring-violet-300/60 ring-offset-1 ring-offset-[#1a1728]" : ""
-              }`}
-              onDragOver={dragOverRoot}
-              onDrop={dropOnRoot}
-            >
-              {requestTree.length === 0 && (
-                <p className="rounded-lg border border-dashed border-white/15 p-3 text-xs text-zinc-400">
-                  Nenhuma requisicao ainda.
-                </p>
-              )}
-
-              {renderRequestTreeNodes(requestTree)}
-            </div>
-          </aside>
+          <RequestTreePanel
+            requestTree={requestTree}
+            activeRequestId={activeRequestId}
+            editingRequestId={editingRequestId}
+            editingRequestName={editingRequestName}
+            editingFolderId={editingFolderId}
+            editingFolderName={editingFolderName}
+            expandedFolderIds={expandedFolderIds}
+            draggingNodeId={draggingNodeId}
+            dragDropTarget={dragDropTarget}
+            methodStyleMap={METHOD_STYLE_MAP}
+            setEditingRequestName={setEditingRequestName}
+            setEditingFolderName={setEditingFolderName}
+            createFolder={createFolder}
+            createRequest={createRequest}
+            selectRequest={selectRequest}
+            toggleFolderExpanded={toggleFolderExpanded}
+            startEditingFolderName={startEditingFolderName}
+            startEditingRequestName={startEditingRequestName}
+            commitEditingFolderName={commitEditingFolderName}
+            cancelEditingFolderName={cancelEditingFolderName}
+            commitEditingRequestName={commitEditingRequestName}
+            cancelEditingRequestName={cancelEditingRequestName}
+            beginDragNode={beginDragNode}
+            endDragNode={endDragNode}
+            dragOverRoot={dragOverRoot}
+            dropOnRoot={dropOnRoot}
+            dragOverFolder={dragOverFolder}
+            dropOnFolder={dropOnFolder}
+            dragOverRequest={dragOverRequest}
+            dropOnRequest={dropOnRequest}
+            dragOverPosition={dragOverPosition}
+            dropOnPosition={dropOnPosition}
+            openRequestContextMenu={openRequestContextMenu}
+          />
 
           <div className="relative bg-white/10">
             <button
@@ -4121,531 +3152,59 @@ export default function CollectionDetailsPage() {
         </div>
       )}
 
-      {isEnvironmentModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 pb-4 pl-4 pr-4 pt-14"
-          onClick={closeEnvironmentModal}
-        >
-          <div
-            className="flex max-h-[calc(100vh-4rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/15 bg-[#151225] shadow-[0_12px_42px_rgba(0,0,0,0.5)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <h2 className="text-sm font-semibold text-zinc-100">Gerenciar ambientes</h2>
-              <button
-                type="button"
-                onClick={closeEnvironmentModal}
-                className="rounded-md border border-white/20 px-2 py-1 text-xs text-zinc-200 transition hover:bg-white/10"
-              >
-                Fechar
-              </button>
-            </div>
-
-            <div className="grid min-h-[420px] min-h-0 flex-1 gap-0 md:grid-cols-[260px_minmax(0,1fr)]">
-              <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#121025] p-3">
-                <div className="mb-3 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEnvironmentModalScope("local")}
-                    className={`h-8 rounded-md border text-xs font-medium transition ${
-                      environmentModalScope === "local"
-                        ? "border-violet-300/55 bg-violet-500/25 text-violet-100"
-                        : "border-white/15 bg-[#0e0b1c] text-zinc-300 hover:bg-white/10"
-                    }`}
-                  >
-                    Locais
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEnvironmentModalScope("global")}
-                    className={`h-8 rounded-md border text-xs font-medium transition ${
-                      environmentModalScope === "global"
-                        ? "border-violet-300/55 bg-violet-500/25 text-violet-100"
-                        : "border-white/15 bg-[#0e0b1c] text-zinc-300 hover:bg-white/10"
-                    }`}
-                  >
-                    Globais
-                  </button>
-                </div>
-
-                {environmentModalScope === "local" ? (
-                  <>
-                    <div className="space-y-2">
-                      <input
-                        value={newEnvironmentName}
-                        onChange={(event) => setNewEnvironmentName(event.target.value)}
-                        className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                        placeholder="Nome do ambiente local"
-                      />
-                      <button
-                        type="button"
-                        onClick={createEnvironment}
-                        className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
-                      >
-                        Criar ambiente local
-                      </button>
-                    </div>
-
-                    <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
-                      {environments.length === 0 && (
-                        <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
-                          Nenhum ambiente local criado.
-                        </p>
-                      )}
-
-                      {environments.map((environment) => {
-                        const isSelected = editingEnvironmentId === environment.id;
-                        const isActive = collection.activeEnvironmentId === environment.id;
-                        const isNameEditing = editingEnvironmentNameId === environment.id;
-                        const isDeletePending = pendingDeleteEnvironmentId === environment.id;
-
-                        return (
-                          <div
-                            key={environment.id}
-                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm transition ${
-                              isSelected
-                                ? "border-violet-300/55 bg-violet-500/20"
-                                : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
-                            }`}
-                          >
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setEditingEnvironmentId(environment.id)}
-                              onDoubleClick={() => startEditingEnvironmentName(environment.id, environment.name)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  setEditingEnvironmentId(environment.id);
-                                }
-                              }}
-                              className="flex min-w-0 flex-1 items-center gap-2"
-                            >
-                              {isNameEditing ? (
-                                <input
-                                  autoFocus
-                                  value={editingEnvironmentName}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onChange={(event) => setEditingEnvironmentName(event.target.value)}
-                                  onBlur={commitEditingEnvironmentName}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      commitEditingEnvironmentName();
-                                    } else if (event.key === "Escape") {
-                                      event.preventDefault();
-                                      cancelEditingEnvironmentName();
-                                    }
-                                  }}
-                                  className="h-8 w-full min-w-0 rounded-md border border-violet-300/45 bg-[#0f0c1f] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                />
-                              ) : (
-                                <span className="truncate text-zinc-100">{environment.name}</span>
-                              )}
-                              {isActive && (
-                                <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-                                  ativo
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteEnvironmentClick(environment.id);
-                              }}
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
-                                isDeletePending
-                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                              }`}
-                              aria-label={
-                                isDeletePending
-                                  ? "Clique novamente para deletar ambiente"
-                                  : "Deletar ambiente"
-                              }
-                              title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
-                            >
-                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <input
-                        value={newGlobalEnvironmentName}
-                        onChange={(event) => setNewGlobalEnvironmentName(event.target.value)}
-                        className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                        placeholder="Nome do ambiente global"
-                      />
-                      <button
-                        type="button"
-                        onClick={createGlobalEnvironment}
-                        className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
-                      >
-                        Criar ambiente global
-                      </button>
-                    </div>
-
-                    <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
-                      {globalEnvironments.length === 0 && (
-                        <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
-                          Nenhum ambiente global criado.
-                        </p>
-                      )}
-
-                      {globalEnvironments.map((environment) => {
-                        const isSelected = editingGlobalEnvironmentId === environment.id;
-                        const isActive = globalEnvironmentState.activeEnvironmentId === environment.id;
-                        const isNameEditing = editingGlobalEnvironmentNameId === environment.id;
-                        const isDeletePending = pendingDeleteGlobalEnvironmentId === environment.id;
-
-                        return (
-                          <div
-                            key={environment.id}
-                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm transition ${
-                              isSelected
-                                ? "border-violet-300/55 bg-violet-500/20"
-                                : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
-                            }`}
-                          >
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setEditingGlobalEnvironmentId(environment.id)}
-                              onDoubleClick={() =>
-                                startEditingGlobalEnvironmentName(environment.id, environment.name)
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  setEditingGlobalEnvironmentId(environment.id);
-                                }
-                              }}
-                              className="flex min-w-0 flex-1 items-center gap-2"
-                            >
-                              {isNameEditing ? (
-                                <input
-                                  autoFocus
-                                  value={editingGlobalEnvironmentName}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onChange={(event) => setEditingGlobalEnvironmentName(event.target.value)}
-                                  onBlur={commitEditingGlobalEnvironmentName}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      commitEditingGlobalEnvironmentName();
-                                    } else if (event.key === "Escape") {
-                                      event.preventDefault();
-                                      cancelEditingGlobalEnvironmentName();
-                                    }
-                                  }}
-                                  className="h-8 w-full min-w-0 rounded-md border border-violet-300/45 bg-[#0f0c1f] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                />
-                              ) : (
-                                <span className="truncate text-zinc-100">{environment.name}</span>
-                              )}
-                              {isActive && (
-                                <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-                                  ativo
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteGlobalEnvironmentClick(environment.id);
-                              }}
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
-                                isDeletePending
-                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                              }`}
-                              aria-label={
-                                isDeletePending
-                                  ? "Clique novamente para deletar ambiente"
-                                  : "Deletar ambiente"
-                              }
-                              title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
-                            >
-                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </aside>
-
-              <section className="flex min-h-0 flex-col overflow-hidden p-4">
-                {environmentModalScope === "local" ? (
-                  editingEnvironment ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-                        <p className="truncate text-sm font-medium text-zinc-100">{editingEnvironment.name}</p>
-                        <button
-                          type="button"
-                          onClick={() => setActiveEnvironmentId(editingEnvironment.id)}
-                          className={`h-10 rounded-md border px-3 text-sm transition ${
-                            collection.activeEnvironmentId === editingEnvironment.id
-                              ? "border-emerald-300/55 bg-emerald-500/20 text-emerald-100"
-                              : "border-white/20 text-zinc-200 hover:bg-white/10"
-                          }`}
-                        >
-                          {collection.activeEnvironmentId === editingEnvironment.id ? "Ambiente local ativo" : "Ativar"}
-                        </button>
-                      </div>
-
-                      <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
-                        <div className="mb-2 hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-                          <span>Ativo</span>
-                          <span>Variavel</span>
-                          <span>Valor</span>
-                          <span>Acao</span>
-                        </div>
-
-                        <div className="space-y-2">
-                          {editingEnvironment.variables.map((variable) => {
-                            const variableDeleteKey = `${editingEnvironment.id}:${variable.id}`;
-                            const isDeletePending = pendingDeleteEnvironmentVariableKey === variableDeleteKey;
-
-                            return (
-                              <div
-                                key={variable.id}
-                                className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
-                              >
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateEnvironmentVariable(
-                                    editingEnvironment.id,
-                                    variable.id,
-                                    "enabled",
-                                    !variable.enabled,
-                                  )
-                                }
-                                className={`flex h-10 items-center justify-center rounded-lg border transition ${
-                                  variable.enabled
-                                    ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
-                                    : "border-white/15 bg-[#121025] hover:bg-white/10"
-                                }`}
-                                aria-pressed={variable.enabled}
-                                aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
-                              >
-                                <span
-                                  className={`relative h-5 w-9 rounded-full transition ${
-                                    variable.enabled ? "bg-emerald-500" : "bg-zinc-700"
-                                  }`}
-                                >
-                                  <span
-                                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                                      variable.enabled ? "translate-x-4" : ""
-                                    }`}
-                                  />
-                                </span>
-                              </button>
-                              <input
-                                value={variable.key}
-                                onChange={(event) =>
-                                  updateEnvironmentVariable(
-                                    editingEnvironment.id,
-                                    variable.id,
-                                    "key",
-                                    event.target.value,
-                                  )
-                                }
-                                className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                placeholder="api_host"
-                              />
-                              <input
-                                value={variable.value}
-                                onChange={(event) =>
-                                  updateEnvironmentVariable(
-                                    editingEnvironment.id,
-                                    variable.id,
-                                    "value",
-                                    event.target.value,
-                                  )
-                                }
-                                className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                placeholder="http://localhost:8080"
-                              />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleRemoveEnvironmentVariableClick(editingEnvironment.id, variable.id)
-                                }
-                                className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
-                                  isDeletePending
-                                    ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                    : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                                }`}
-                                aria-label={
-                                  isDeletePending
-                                    ? "Clique novamente para remover variavel"
-                                    : "Remover variavel"
-                                }
-                                title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
-                              >
-                                {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                              </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => addEnvironmentVariable(editingEnvironment.id)}
-                          className="mt-3 rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
-                        >
-                          + Adicionar variavel
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-zinc-400">Crie ou selecione um ambiente local para editar.</p>
-                  )
-                ) : editingGlobalEnvironment ? (
-                  <>
-                    <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-                      <p className="truncate text-sm font-medium text-zinc-100">{editingGlobalEnvironment.name}</p>
-                      <button
-                        type="button"
-                        onClick={() => setActiveGlobalEnvironmentId(editingGlobalEnvironment.id)}
-                        className={`h-10 rounded-md border px-3 text-sm transition ${
-                          globalEnvironmentState.activeEnvironmentId === editingGlobalEnvironment.id
-                            ? "border-emerald-300/55 bg-emerald-500/20 text-emerald-100"
-                            : "border-white/20 text-zinc-200 hover:bg-white/10"
-                        }`}
-                      >
-                        {globalEnvironmentState.activeEnvironmentId === editingGlobalEnvironment.id
-                          ? "Ambiente global ativo"
-                          : "Ativar"}
-                      </button>
-                    </div>
-
-                    <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
-                      <div className="mb-2 hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-                        <span>Ativo</span>
-                        <span>Variavel</span>
-                        <span>Valor</span>
-                        <span>Acao</span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {editingGlobalEnvironment.variables.map((variable) => {
-                          const variableDeleteKey = `${editingGlobalEnvironment.id}:${variable.id}`;
-                          const isDeletePending = pendingDeleteGlobalEnvironmentVariableKey === variableDeleteKey;
-
-                          return (
-                            <div
-                              key={variable.id}
-                              className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
-                            >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateGlobalEnvironmentVariable(
-                                  editingGlobalEnvironment.id,
-                                  variable.id,
-                                  "enabled",
-                                  !variable.enabled,
-                                )
-                              }
-                              className={`flex h-10 items-center justify-center rounded-lg border transition ${
-                                variable.enabled
-                                  ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
-                                  : "border-white/15 bg-[#121025] hover:bg-white/10"
-                              }`}
-                              aria-pressed={variable.enabled}
-                              aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
-                            >
-                              <span
-                                className={`relative h-5 w-9 rounded-full transition ${
-                                  variable.enabled ? "bg-emerald-500" : "bg-zinc-700"
-                                }`}
-                              >
-                                <span
-                                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                                    variable.enabled ? "translate-x-4" : ""
-                                  }`}
-                                />
-                              </span>
-                            </button>
-                            <input
-                              value={variable.key}
-                              onChange={(event) =>
-                                updateGlobalEnvironmentVariable(
-                                  editingGlobalEnvironment.id,
-                                  variable.id,
-                                  "key",
-                                  event.target.value,
-                                )
-                              }
-                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                              placeholder="api_host"
-                            />
-                            <input
-                              value={variable.value}
-                              onChange={(event) =>
-                                updateGlobalEnvironmentVariable(
-                                  editingGlobalEnvironment.id,
-                                  variable.id,
-                                  "value",
-                                  event.target.value,
-                                )
-                              }
-                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                              placeholder="http://localhost:8080"
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleRemoveGlobalEnvironmentVariableClick(editingGlobalEnvironment.id, variable.id)
-                              }
-                              className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
-                                isDeletePending
-                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                              }`}
-                              aria-label={
-                                isDeletePending
-                                  ? "Clique novamente para remover variavel"
-                                  : "Remover variavel"
-                              }
-                              title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
-                            >
-                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                            </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => addGlobalEnvironmentVariable(editingGlobalEnvironment.id)}
-                        className="mt-3 rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
-                      >
-                        + Adicionar variavel
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-sm text-zinc-400">Crie ou selecione um ambiente global para editar.</p>
-                )}
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
+      <EnvironmentModal
+        {...{
+          isEnvironmentModalOpen,
+          closeEnvironmentModal,
+          setEnvironmentModalScope,
+          environmentModalScope,
+          newEnvironmentName,
+          setNewEnvironmentName,
+          createEnvironment,
+          environments,
+          editingEnvironmentId,
+          collection,
+          editingEnvironmentNameId,
+          pendingDeleteEnvironmentId,
+          setEditingEnvironmentId,
+          startEditingEnvironmentName,
+          editingEnvironmentName,
+          setEditingEnvironmentName,
+          commitEditingEnvironmentName,
+          cancelEditingEnvironmentName,
+          handleDeleteEnvironmentClick,
+          newGlobalEnvironmentName,
+          setNewGlobalEnvironmentName,
+          createGlobalEnvironment,
+          globalEnvironments,
+          editingGlobalEnvironmentId,
+          globalEnvironmentState,
+          editingGlobalEnvironmentNameId,
+          pendingDeleteGlobalEnvironmentId,
+          setEditingGlobalEnvironmentId,
+          startEditingGlobalEnvironmentName,
+          editingGlobalEnvironmentName,
+          setEditingGlobalEnvironmentName,
+          commitEditingGlobalEnvironmentName,
+          cancelEditingGlobalEnvironmentName,
+          handleDeleteGlobalEnvironmentClick,
+          editingEnvironment,
+          setActiveEnvironmentId,
+          pendingDeleteEnvironmentVariableKey,
+          updateEnvironmentVariable,
+          handleRemoveEnvironmentVariableClick,
+          addEnvironmentVariable,
+          editingGlobalEnvironment,
+          setActiveGlobalEnvironmentId,
+          pendingDeleteGlobalEnvironmentVariableKey,
+          updateGlobalEnvironmentVariable,
+          handleRemoveGlobalEnvironmentVariableClick,
+          addGlobalEnvironmentVariable,
+        }}
+      />
     </main>
   );
 }
+
+
+
