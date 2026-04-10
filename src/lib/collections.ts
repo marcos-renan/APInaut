@@ -299,6 +299,51 @@ const normalizePostmanMethod = (value: unknown): HttpMethod => {
   return "GET";
 };
 
+const looksLikeJsonBody = (value: string): boolean => {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return (
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    );
+  }
+};
+
+const hasJsonContentTypeHeader = (value: unknown): boolean => {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const item = entry as { key?: unknown; value?: unknown };
+    if (typeof item.key !== "string" || typeof item.value !== "string") {
+      continue;
+    }
+
+    if (item.key.toLowerCase() !== "content-type") {
+      continue;
+    }
+
+    if (item.value.toLowerCase().includes("json")) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 const normalizePostmanUrl = (value: unknown): { url: string; params: KeyValueRow[] } => {
   if (typeof value === "string") {
     return {
@@ -467,7 +512,10 @@ const normalizePostmanAuth = (
   };
 };
 
-const normalizePostmanBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "body"> => {
+const normalizePostmanBody = (
+  value: unknown,
+  headers: unknown,
+): Pick<ApiRequest, "bodyMode" | "body"> => {
   if (!value || typeof value !== "object") {
     return {
       bodyMode: "none",
@@ -505,9 +553,11 @@ const normalizePostmanBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "bo
     typeof ((candidate.options as { raw?: { language?: unknown } }).raw?.language) === "string"
       ? (candidate.options as { raw?: { language?: string } }).raw?.language?.toLowerCase()
       : "";
+  const hasJsonHeader = hasJsonContentTypeHeader(headers);
+  const bodyLooksJson = looksLikeJsonBody(rawBody);
 
   return {
-    bodyMode: rawLanguage === "json" ? "json" : "text",
+    bodyMode: rawLanguage === "json" || hasJsonHeader || bodyLooksJson ? "json" : "text",
     body: rawBody,
   };
 };
@@ -594,7 +644,8 @@ const normalizePostmanRequestNode = (value: unknown): RequestTreeNode | null => 
 
   const normalizedUrl = normalizePostmanUrl(requestCandidate.url);
   const normalizedAuth = normalizePostmanAuth(requestCandidate.auth);
-  const normalizedBody = normalizePostmanBody(requestCandidate.body);
+  const normalizedHeaders = normalizePostmanHeaders(requestCandidate.header);
+  const normalizedBody = normalizePostmanBody(requestCandidate.body, requestCandidate.header);
   const requestId =
     typeof item.id === "string"
       ? item.id
@@ -614,7 +665,7 @@ const normalizePostmanRequestNode = (value: unknown): RequestTreeNode | null => 
       method: normalizePostmanMethod(requestCandidate.method),
       url: normalizedUrl.url,
       params: normalizedUrl.params,
-      headers: normalizePostmanHeaders(requestCandidate.header),
+      headers: normalizedHeaders,
       bodyMode: normalizedBody.bodyMode,
       body: normalizedBody.body,
       authType: normalizedAuth.authType,
@@ -771,6 +822,426 @@ const normalizePostmanCollectionsFromUnknown = (value: unknown): Collection[] =>
   return [];
 };
 
+const INSOMNIA_WORKSPACE_TYPE_PREFIX = "collection.insomnia.rest/";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeInsomniaTemplateString = (value: string): string =>
+  value
+    .replace(/\{\{\s*_\[['"]([^'"\]]+)['"]\]\s*\}\}/g, (_match, variableName: string) => `{{${variableName}}}`)
+    .replace(/\{\{\s*_\.([A-Za-z0-9_.-]+)\s*\}\}/g, (_match, variableName: string) => `{{${variableName}}}`);
+
+const getInsomniaMetaId = (value: unknown): string | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const metaId = isRecord(value.meta) && typeof value.meta.id === "string" ? value.meta.id : null;
+
+  if (metaId) {
+    return metaId;
+  }
+
+  return typeof value.id === "string" ? value.id : null;
+};
+
+const normalizeInsomniaRows = (value: unknown): KeyValueRow[] => {
+  if (!Array.isArray(value)) {
+    return [createRow()];
+  }
+
+  const rows = value
+    .map((entry) => {
+      if (!isRecord(entry) || typeof entry.name !== "string" || !entry.name.trim()) {
+        return null;
+      }
+
+      return createRow({
+        enabled: entry.disabled !== true,
+        key: entry.name,
+        value:
+          typeof entry.value === "string"
+            ? normalizeInsomniaTemplateString(entry.value)
+            : entry.value === null || entry.value === undefined
+              ? ""
+              : String(entry.value),
+      });
+    })
+    .filter((entry): entry is KeyValueRow => entry !== null);
+
+  return rows.length > 0 ? rows : [createRow()];
+};
+
+const normalizeInsomniaAuth = (
+  value: unknown,
+): Pick<ApiRequest, "authType" | "bearerToken" | "basicUsername" | "basicPassword"> => {
+  if (!isRecord(value)) {
+    return {
+      authType: "none",
+      bearerToken: "",
+      basicUsername: "",
+      basicPassword: "",
+    };
+  }
+
+  if (value.type === "bearer") {
+    return {
+      authType: "bearer",
+      bearerToken:
+        typeof value.token === "string" ? normalizeInsomniaTemplateString(value.token) : "",
+      basicUsername: "",
+      basicPassword: "",
+    };
+  }
+
+  if (value.type === "basic") {
+    return {
+      authType: "basic",
+      bearerToken: "",
+      basicUsername:
+        typeof value.username === "string" ? normalizeInsomniaTemplateString(value.username) : "",
+      basicPassword:
+        typeof value.password === "string" ? normalizeInsomniaTemplateString(value.password) : "",
+    };
+  }
+
+  return {
+    authType: "none",
+    bearerToken: "",
+    basicUsername: "",
+    basicPassword: "",
+  };
+};
+
+const normalizeInsomniaBody = (value: unknown): Pick<ApiRequest, "bodyMode" | "body"> => {
+  if (!isRecord(value)) {
+    return {
+      bodyMode: "none",
+      body: "",
+    };
+  }
+
+  const rawText = typeof value.text === "string" ? normalizeInsomniaTemplateString(value.text) : "";
+  const mimeType = typeof value.mimeType === "string" ? value.mimeType.toLowerCase() : "";
+
+  if (rawText.trim()) {
+    return {
+      bodyMode: mimeType.includes("json") || looksLikeJsonBody(rawText) ? "json" : "text",
+      body: rawText,
+    };
+  }
+
+  if (Array.isArray(value.params)) {
+    const entries = value.params
+      .map((entry) => {
+        if (!isRecord(entry) || entry.disabled === true || typeof entry.name !== "string") {
+          return null;
+        }
+
+        if (entry.type === "file") {
+          return null;
+        }
+
+        const itemValue =
+          typeof entry.value === "string"
+            ? normalizeInsomniaTemplateString(entry.value)
+            : entry.value === undefined || entry.value === null
+              ? ""
+              : String(entry.value);
+
+        return `${entry.name}=${itemValue}`;
+      })
+      .filter((entry): entry is string => entry !== null);
+
+    if (entries.length > 0) {
+      return {
+        bodyMode: "text",
+        body: entries.join("\n"),
+      };
+    }
+  }
+
+  return {
+    bodyMode: "none",
+    body: "",
+  };
+};
+
+const normalizeInsomniaScripts = (value: unknown): Pick<ApiRequest, "preRequestScript" | "afterResponseScript"> => {
+  if (!isRecord(value)) {
+    return {
+      preRequestScript: "",
+      afterResponseScript: "",
+    };
+  }
+
+  return {
+    preRequestScript:
+      typeof value.preRequest === "string" ? normalizeInsomniaTemplateString(value.preRequest) : "",
+    afterResponseScript:
+      typeof value.afterResponse === "string" ? normalizeInsomniaTemplateString(value.afterResponse) : "",
+  };
+};
+
+const normalizeInsomniaRequestNode = (value: unknown): RequestTreeNode | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (typeof value.method !== "string" && typeof value.url !== "string") {
+    return null;
+  }
+
+  const requestId = getInsomniaMetaId(value) ?? crypto.randomUUID();
+  const requestName = typeof value.name === "string" && value.name.trim() ? value.name : "New Request";
+  const body = normalizeInsomniaBody(value.body);
+  const auth = normalizeInsomniaAuth(value.authentication);
+  const scripts = normalizeInsomniaScripts(value.scripts);
+  const request = createDefaultRequest(requestName);
+
+  return {
+    id: requestId,
+    type: "request",
+    request: {
+      ...request,
+      id: requestId,
+      name: requestName,
+      method: normalizePostmanMethod(value.method),
+      url: typeof value.url === "string" ? normalizeInsomniaTemplateString(value.url) : "",
+      params: normalizeInsomniaRows(value.parameters),
+      headers: normalizeInsomniaRows(value.headers),
+      bodyMode: body.bodyMode,
+      body: body.body,
+      authType: auth.authType,
+      bearerToken: auth.bearerToken,
+      basicUsername: auth.basicUsername,
+      basicPassword: auth.basicPassword,
+      preRequestScript: scripts.preRequestScript,
+      afterResponseScript: scripts.afterResponseScript,
+    },
+  };
+};
+
+const normalizeInsomniaTreeNode = (value: unknown): RequestTreeNode | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (Array.isArray(value.children)) {
+    const folderId = getInsomniaMetaId(value) ?? crypto.randomUUID();
+    const folderName = typeof value.name === "string" && value.name.trim() ? value.name : "New Folder";
+    const children = value.children
+      .map((entry) => normalizeInsomniaTreeNode(entry))
+      .filter((entry): entry is RequestTreeNode => entry !== null);
+
+    return {
+      id: folderId,
+      type: "folder",
+      name: folderName,
+      children,
+    };
+  }
+
+  return normalizeInsomniaRequestNode(value);
+};
+
+const normalizeInsomniaEnvironmentValue = (value: unknown): string => {
+  if (typeof value === "string") {
+    return normalizeInsomniaTemplateString(value);
+  }
+
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const normalizeInsomniaEnvironmentVariables = (value: unknown): EnvironmentVariable[] => {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  return Object.entries(value)
+    .filter(([key]) => key.trim().length > 0)
+    .map(([key, currentValue]) =>
+      createEnvironmentVariable({
+        key,
+        value: normalizeInsomniaEnvironmentValue(currentValue),
+        enabled: true,
+      }),
+    );
+};
+
+const collectInsomniaEnvironmentVariablesFromCollectionTree = (value: unknown): EnvironmentVariable[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const collected: EnvironmentVariable[] = [];
+
+  const walk = (items: unknown[]) => {
+    for (const entry of items) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+
+      collected.push(...normalizeInsomniaEnvironmentVariables(entry.environment));
+
+      if (Array.isArray(entry.children)) {
+        walk(entry.children);
+      }
+    }
+  };
+
+  walk(value);
+  return collected;
+};
+
+const mergeEnvironmentVariablesByKey = (variables: EnvironmentVariable[]): EnvironmentVariable[] => {
+  const variablesMap = new Map<string, EnvironmentVariable>();
+
+  for (const variable of variables) {
+    const key = variable.key.trim();
+
+    if (!key) {
+      continue;
+    }
+
+    variablesMap.set(key, {
+      ...variable,
+      id: crypto.randomUUID(),
+      key,
+      enabled: true,
+    });
+  }
+
+  return Array.from(variablesMap.values());
+};
+
+const normalizeInsomniaWorkspaceEnvironments = (value: unknown): Environment[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (!isRecord(entry)) {
+          return null;
+        }
+
+        const variables = normalizeInsomniaEnvironmentVariables(entry.data);
+
+        if (variables.length === 0) {
+          return null;
+        }
+
+        return createEnvironment({
+          id: getInsomniaMetaId(entry) ?? crypto.randomUUID(),
+          name: typeof entry.name === "string" && entry.name.trim() ? entry.name : "Imported Environment",
+          variables,
+        });
+      })
+      .filter((entry): entry is Environment => entry !== null);
+  }
+
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const variables = normalizeInsomniaEnvironmentVariables(value.data);
+
+  if (variables.length === 0) {
+    return [];
+  }
+
+  return [
+    createEnvironment({
+      id: getInsomniaMetaId(value) ?? crypto.randomUUID(),
+      name: typeof value.name === "string" && value.name.trim() ? value.name : "Imported Environment",
+      variables,
+    }),
+  ];
+};
+
+const normalizeInsomniaCollection = (value: unknown): Collection | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (typeof value.type !== "string" || !value.type.startsWith(INSOMNIA_WORKSPACE_TYPE_PREFIX)) {
+    return null;
+  }
+
+  if (!Array.isArray(value.collection)) {
+    return null;
+  }
+
+  const requestTree = value.collection
+    .map((entry) => normalizeInsomniaTreeNode(entry))
+    .filter((entry): entry is RequestTreeNode => entry !== null);
+
+  const workspaceEnvironments = normalizeInsomniaWorkspaceEnvironments(value.environments);
+  const collectionVariables = collectInsomniaEnvironmentVariablesFromCollectionTree(value.collection);
+
+  const environments =
+    workspaceEnvironments.length > 0 || collectionVariables.length > 0
+      ? (() => {
+          if (workspaceEnvironments.length === 0) {
+            return [
+              createEnvironment({
+                name: "Imported Environment",
+                variables: mergeEnvironmentVariablesByKey(collectionVariables),
+              }),
+            ];
+          }
+
+          const [firstEnvironment, ...rest] = workspaceEnvironments;
+          const mergedVariables = mergeEnvironmentVariablesByKey([
+            ...firstEnvironment.variables,
+            ...collectionVariables,
+          ]);
+
+          return [
+            {
+              ...firstEnvironment,
+              variables: mergedVariables,
+            },
+            ...rest,
+          ];
+        })()
+      : [];
+
+  return {
+    id: getInsomniaMetaId(value) ?? crypto.randomUUID(),
+    name:
+      typeof value.name === "string" && value.name.trim() ? value.name : "Imported Insomnia Collection",
+    createdAt: new Date().toISOString(),
+    requestTree,
+    environments,
+    activeEnvironmentId: environments.length > 0 ? environments[0].id : null,
+    lastActiveRequestId: null,
+  };
+};
+
+const normalizeInsomniaCollectionsFromUnknown = (value: unknown): Collection[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeInsomniaCollection(entry))
+      .filter((entry): entry is Collection => entry !== null);
+  }
+
+  const singleCollection = normalizeInsomniaCollection(value);
+
+  return singleCollection ? [singleCollection] : [];
+};
+
 const normalizeCollectionsFromUnknown = (value: unknown): Collection[] => {
   if (Array.isArray(value)) {
     const normalized = value
@@ -779,6 +1250,12 @@ const normalizeCollectionsFromUnknown = (value: unknown): Collection[] => {
 
     if (normalized.length > 0) {
       return normalized;
+    }
+
+    const normalizedInsomnia = normalizeInsomniaCollectionsFromUnknown(value);
+
+    if (normalizedInsomnia.length > 0) {
+      return normalizedInsomnia;
     }
 
     return normalizePostmanCollectionsFromUnknown(value);
@@ -796,6 +1273,12 @@ const normalizeCollectionsFromUnknown = (value: unknown): Collection[] => {
         return normalized;
       }
     }
+  }
+
+  const normalizedInsomnia = normalizeInsomniaCollectionsFromUnknown(value);
+
+  if (normalizedInsomnia.length > 0) {
+    return normalizedInsomnia;
   }
 
   return normalizePostmanCollectionsFromUnknown(value);

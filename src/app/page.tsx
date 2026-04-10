@@ -300,7 +300,7 @@ export default function Home() {
   };
 
   return (
-    <main className="relative min-h-screen bg-[#100e1a] px-6 py-10">
+    <main className="relative h-full overflow-auto bg-[#100e1a] px-6 py-8">
       <div className="mx-auto w-full max-w-4xl">
         <div className="mb-6 flex items-center justify-between gap-4">
           <h1 className="text-xl font-semibold text-white">Coleções</h1>

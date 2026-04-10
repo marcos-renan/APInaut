@@ -933,10 +933,42 @@ export default function CollectionDetailsPage() {
   const [rightPanelWidth, setRightPanelWidth] = useState(initialPaneWidthsRef.current.right);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
   const [urlPreviewCopied, setUrlPreviewCopied] = useState(false);
+  const [editingEnvironmentNameId, setEditingEnvironmentNameId] = useState<string | null>(null);
+  const [editingEnvironmentName, setEditingEnvironmentName] = useState("");
+  const [editingGlobalEnvironmentNameId, setEditingGlobalEnvironmentNameId] = useState<string | null>(null);
+  const [editingGlobalEnvironmentName, setEditingGlobalEnvironmentName] = useState("");
+  const [pendingDeleteEnvironmentId, setPendingDeleteEnvironmentId] = useState<string | null>(null);
+  const [pendingDeleteGlobalEnvironmentId, setPendingDeleteGlobalEnvironmentId] = useState<string | null>(null);
+  const [pendingDeleteEnvironmentVariableKey, setPendingDeleteEnvironmentVariableKey] = useState<string | null>(null);
+  const [pendingDeleteGlobalEnvironmentVariableKey, setPendingDeleteGlobalEnvironmentVariableKey] = useState<
+    string | null
+  >(null);
+  const deleteEnvironmentConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deleteGlobalEnvironmentConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deleteEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deleteGlobalEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (deleteEnvironmentConfirmTimeoutRef.current) {
+        clearTimeout(deleteEnvironmentConfirmTimeoutRef.current);
+      }
+      if (deleteGlobalEnvironmentConfirmTimeoutRef.current) {
+        clearTimeout(deleteGlobalEnvironmentConfirmTimeoutRef.current);
+      }
+      if (deleteEnvironmentVariableConfirmTimeoutRef.current) {
+        clearTimeout(deleteEnvironmentVariableConfirmTimeoutRef.current);
+      }
+      if (deleteGlobalEnvironmentVariableConfirmTimeoutRef.current) {
+        clearTimeout(deleteGlobalEnvironmentVariableConfirmTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1817,6 +1849,31 @@ export default function CollectionDetailsPage() {
   };
 
   const closeEnvironmentModal = () => {
+    if (deleteEnvironmentConfirmTimeoutRef.current) {
+      clearTimeout(deleteEnvironmentConfirmTimeoutRef.current);
+      deleteEnvironmentConfirmTimeoutRef.current = null;
+    }
+    if (deleteGlobalEnvironmentConfirmTimeoutRef.current) {
+      clearTimeout(deleteGlobalEnvironmentConfirmTimeoutRef.current);
+      deleteGlobalEnvironmentConfirmTimeoutRef.current = null;
+    }
+    if (deleteEnvironmentVariableConfirmTimeoutRef.current) {
+      clearTimeout(deleteEnvironmentVariableConfirmTimeoutRef.current);
+      deleteEnvironmentVariableConfirmTimeoutRef.current = null;
+    }
+    if (deleteGlobalEnvironmentVariableConfirmTimeoutRef.current) {
+      clearTimeout(deleteGlobalEnvironmentVariableConfirmTimeoutRef.current);
+      deleteGlobalEnvironmentVariableConfirmTimeoutRef.current = null;
+    }
+
+    setEditingEnvironmentNameId(null);
+    setEditingEnvironmentName("");
+    setEditingGlobalEnvironmentNameId(null);
+    setEditingGlobalEnvironmentName("");
+    setPendingDeleteEnvironmentId(null);
+    setPendingDeleteGlobalEnvironmentId(null);
+    setPendingDeleteEnvironmentVariableKey(null);
+    setPendingDeleteGlobalEnvironmentVariableKey(null);
     setIsEnvironmentModalOpen(false);
     setNewEnvironmentName("");
     setNewGlobalEnvironmentName("");
@@ -1841,6 +1898,10 @@ export default function CollectionDetailsPage() {
     if (editingEnvironmentId === environmentId) {
       setEditingEnvironmentId(null);
     }
+    if (editingEnvironmentNameId === environmentId) {
+      setEditingEnvironmentNameId(null);
+      setEditingEnvironmentName("");
+    }
   };
 
   const updateEnvironmentName = (environmentId: string, name: string) => {
@@ -1849,6 +1910,31 @@ export default function CollectionDetailsPage() {
         environment.id === environmentId ? { ...environment, name } : environment,
       ),
     );
+  };
+
+  const startEditingEnvironmentName = (environmentId: string, currentName: string) => {
+    setEditingEnvironmentId(environmentId);
+    setEditingEnvironmentNameId(environmentId);
+    setEditingEnvironmentName(currentName);
+  };
+
+  const cancelEditingEnvironmentName = () => {
+    setEditingEnvironmentNameId(null);
+    setEditingEnvironmentName("");
+  };
+
+  const commitEditingEnvironmentName = () => {
+    if (!editingEnvironmentNameId) {
+      return;
+    }
+
+    const nextName = editingEnvironmentName.trim();
+
+    if (nextName) {
+      updateEnvironmentName(editingEnvironmentNameId, nextName);
+    }
+
+    cancelEditingEnvironmentName();
   };
 
   const updateEnvironmentVariables = (
@@ -1888,6 +1974,54 @@ export default function CollectionDetailsPage() {
     );
   };
 
+  const handleDeleteEnvironmentClick = (environmentId: string) => {
+    if (pendingDeleteEnvironmentId === environmentId) {
+      if (deleteEnvironmentConfirmTimeoutRef.current) {
+        clearTimeout(deleteEnvironmentConfirmTimeoutRef.current);
+      }
+
+      deleteEnvironmentConfirmTimeoutRef.current = null;
+      setPendingDeleteEnvironmentId(null);
+      deleteEnvironment(environmentId);
+      return;
+    }
+
+    if (deleteEnvironmentConfirmTimeoutRef.current) {
+      clearTimeout(deleteEnvironmentConfirmTimeoutRef.current);
+    }
+
+    setPendingDeleteEnvironmentId(environmentId);
+    deleteEnvironmentConfirmTimeoutRef.current = setTimeout(() => {
+      setPendingDeleteEnvironmentId((current) => (current === environmentId ? null : current));
+      deleteEnvironmentConfirmTimeoutRef.current = null;
+    }, DELETE_CONFIRM_TIMEOUT_MS);
+  };
+
+  const handleRemoveEnvironmentVariableClick = (environmentId: string, variableId: string) => {
+    const key = `${environmentId}:${variableId}`;
+
+    if (pendingDeleteEnvironmentVariableKey === key) {
+      if (deleteEnvironmentVariableConfirmTimeoutRef.current) {
+        clearTimeout(deleteEnvironmentVariableConfirmTimeoutRef.current);
+      }
+
+      deleteEnvironmentVariableConfirmTimeoutRef.current = null;
+      setPendingDeleteEnvironmentVariableKey(null);
+      removeEnvironmentVariable(environmentId, variableId);
+      return;
+    }
+
+    if (deleteEnvironmentVariableConfirmTimeoutRef.current) {
+      clearTimeout(deleteEnvironmentVariableConfirmTimeoutRef.current);
+    }
+
+    setPendingDeleteEnvironmentVariableKey(key);
+    deleteEnvironmentVariableConfirmTimeoutRef.current = setTimeout(() => {
+      setPendingDeleteEnvironmentVariableKey((current) => (current === key ? null : current));
+      deleteEnvironmentVariableConfirmTimeoutRef.current = null;
+    }, DELETE_CONFIRM_TIMEOUT_MS);
+  };
+
   const createGlobalEnvironment = () => {
     const fallbackName = `Global ${globalEnvironments.length + 1}`;
     const nextName = newGlobalEnvironmentName.trim() || fallbackName;
@@ -1907,6 +2041,10 @@ export default function CollectionDetailsPage() {
     if (editingGlobalEnvironmentId === environmentId) {
       setEditingGlobalEnvironmentId(null);
     }
+    if (editingGlobalEnvironmentNameId === environmentId) {
+      setEditingGlobalEnvironmentNameId(null);
+      setEditingGlobalEnvironmentName("");
+    }
   };
 
   const updateGlobalEnvironmentName = (environmentId: string, name: string) => {
@@ -1915,6 +2053,31 @@ export default function CollectionDetailsPage() {
         environment.id === environmentId ? { ...environment, name } : environment,
       ),
     );
+  };
+
+  const startEditingGlobalEnvironmentName = (environmentId: string, currentName: string) => {
+    setEditingGlobalEnvironmentId(environmentId);
+    setEditingGlobalEnvironmentNameId(environmentId);
+    setEditingGlobalEnvironmentName(currentName);
+  };
+
+  const cancelEditingGlobalEnvironmentName = () => {
+    setEditingGlobalEnvironmentNameId(null);
+    setEditingGlobalEnvironmentName("");
+  };
+
+  const commitEditingGlobalEnvironmentName = () => {
+    if (!editingGlobalEnvironmentNameId) {
+      return;
+    }
+
+    const nextName = editingGlobalEnvironmentName.trim();
+
+    if (nextName) {
+      updateGlobalEnvironmentName(editingGlobalEnvironmentNameId, nextName);
+    }
+
+    cancelEditingGlobalEnvironmentName();
   };
 
   const updateGlobalEnvironmentVariables = (
@@ -1955,6 +2118,54 @@ export default function CollectionDetailsPage() {
     updateGlobalEnvironmentVariables(environmentId, (variables) =>
       variables.filter((variable) => variable.id !== variableId),
     );
+  };
+
+  const handleDeleteGlobalEnvironmentClick = (environmentId: string) => {
+    if (pendingDeleteGlobalEnvironmentId === environmentId) {
+      if (deleteGlobalEnvironmentConfirmTimeoutRef.current) {
+        clearTimeout(deleteGlobalEnvironmentConfirmTimeoutRef.current);
+      }
+
+      deleteGlobalEnvironmentConfirmTimeoutRef.current = null;
+      setPendingDeleteGlobalEnvironmentId(null);
+      deleteGlobalEnvironment(environmentId);
+      return;
+    }
+
+    if (deleteGlobalEnvironmentConfirmTimeoutRef.current) {
+      clearTimeout(deleteGlobalEnvironmentConfirmTimeoutRef.current);
+    }
+
+    setPendingDeleteGlobalEnvironmentId(environmentId);
+    deleteGlobalEnvironmentConfirmTimeoutRef.current = setTimeout(() => {
+      setPendingDeleteGlobalEnvironmentId((current) => (current === environmentId ? null : current));
+      deleteGlobalEnvironmentConfirmTimeoutRef.current = null;
+    }, DELETE_CONFIRM_TIMEOUT_MS);
+  };
+
+  const handleRemoveGlobalEnvironmentVariableClick = (environmentId: string, variableId: string) => {
+    const key = `${environmentId}:${variableId}`;
+
+    if (pendingDeleteGlobalEnvironmentVariableKey === key) {
+      if (deleteGlobalEnvironmentVariableConfirmTimeoutRef.current) {
+        clearTimeout(deleteGlobalEnvironmentVariableConfirmTimeoutRef.current);
+      }
+
+      deleteGlobalEnvironmentVariableConfirmTimeoutRef.current = null;
+      setPendingDeleteGlobalEnvironmentVariableKey(null);
+      removeGlobalEnvironmentVariable(environmentId, variableId);
+      return;
+    }
+
+    if (deleteGlobalEnvironmentVariableConfirmTimeoutRef.current) {
+      clearTimeout(deleteGlobalEnvironmentVariableConfirmTimeoutRef.current);
+    }
+
+    setPendingDeleteGlobalEnvironmentVariableKey(key);
+    deleteGlobalEnvironmentVariableConfirmTimeoutRef.current = setTimeout(() => {
+      setPendingDeleteGlobalEnvironmentVariableKey((current) => (current === key ? null : current));
+      deleteGlobalEnvironmentVariableConfirmTimeoutRef.current = null;
+    }, DELETE_CONFIRM_TIMEOUT_MS);
   };
 
   const toggleFolderExpanded = (folderId: string) => {
@@ -2665,7 +2876,7 @@ export default function CollectionDetailsPage() {
 
   if (!isMounted) {
     return (
-      <main className="min-h-screen bg-[#100e1a] px-6 py-10 text-white">
+      <main className="h-full overflow-auto bg-[#100e1a] px-6 py-8 text-white">
         <div className="mx-auto w-full max-w-4xl rounded-xl border border-white/10 bg-[#1a1728] p-6">
           <p className="text-sm text-zinc-300">Carregando colecao...</p>
         </div>
@@ -2675,7 +2886,7 @@ export default function CollectionDetailsPage() {
 
   if (!collection) {
     return (
-      <main className="min-h-screen bg-[#100e1a] px-6 py-10 text-white">
+      <main className="h-full overflow-auto bg-[#100e1a] px-6 py-8 text-white">
         <div className="mx-auto w-full max-w-4xl space-y-4 rounded-xl border border-white/10 bg-[#1a1728] p-6">
           <h1 className="text-xl font-semibold">Colecao nao encontrada</h1>
           <p className="text-sm text-zinc-300">
@@ -2836,7 +3047,7 @@ export default function CollectionDetailsPage() {
     });
 
   return (
-    <main className="h-screen min-h-screen overflow-hidden bg-[#100e1a] text-white">
+    <main className="h-full min-h-full overflow-hidden bg-[#100e1a] text-white">
       <div className="flex h-full w-full flex-col overflow-hidden">
         <div className="flex shrink-0 items-center gap-2 px-4 py-2">
           <Link
@@ -3358,7 +3569,7 @@ export default function CollectionDetailsPage() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-white/10 bg-[#121025] px-0">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#121025] px-0">
               <div className="flex shrink-0 items-center gap-1 border-b border-white/10 p-1">
                 {[ 
                   { id: "body", label: "Body" },
@@ -3402,39 +3613,41 @@ export default function CollectionDetailsPage() {
                 </div>
               )}
 
-              {responseTab === "body" && responseBodyView === "web" ? (
-                <div className="h-[486px] overflow-hidden rounded-none border-0 bg-[#0f0d18]">
-                  {requestError ? (
-                    <div className="p-3 text-sm text-rose-300">Nao foi possivel renderizar a pagina por erro na requisicao.</div>
-                  ) : !result ? (
-                    <div className="p-3 text-sm text-zinc-400">Nenhuma resposta ainda.</div>
-                  ) : (
-                    <iframe
-                      title="Preview da resposta"
-                      sandbox="allow-forms allow-scripts allow-same-origin"
-                      srcDoc={responseWebPreviewDocument}
-                      className="h-full w-full border-0 bg-white"
-                    />
-                  )}
-                </div>
-              ) : (
-                <CodeEditor
-                  value={responsePaneContent}
-                  readOnly
-                  language={responseLanguage}
-                  jsonColorPreset="response"
-                  errorTone={hasResponseError}
-                  height="100%"
-                  className="h-[486px] overflow-auto rounded-none border-0"
-                  placeholder={
-                    responseTab === "cookies"
-                      ? "Nenhum cookie retornado."
-                      : responseTab === "headers"
-                        ? "Nenhum header retornado."
-                        : "Nenhuma resposta ainda."
-                  }
-                />
-              )}
+              <div className="min-h-0 flex-1">
+                {responseTab === "body" && responseBodyView === "web" ? (
+                  <div className="h-full min-h-0 overflow-hidden rounded-none border-0 bg-[#0f0d18]">
+                    {requestError ? (
+                      <div className="p-3 text-sm text-rose-300">Nao foi possivel renderizar a pagina por erro na requisicao.</div>
+                    ) : !result ? (
+                      <div className="p-3 text-sm text-zinc-400">Nenhuma resposta ainda.</div>
+                    ) : (
+                      <iframe
+                        title="Preview da resposta"
+                        sandbox="allow-forms allow-scripts allow-same-origin"
+                        srcDoc={responseWebPreviewDocument}
+                        className="h-full w-full border-0 bg-white"
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <CodeEditor
+                    value={responsePaneContent}
+                    readOnly
+                    language={responseLanguage}
+                    jsonColorPreset="response"
+                    errorTone={hasResponseError}
+                    height="100%"
+                    className="h-full min-h-0 overflow-auto rounded-none border-0"
+                    placeholder={
+                      responseTab === "cookies"
+                        ? "Nenhum cookie retornado."
+                        : responseTab === "headers"
+                          ? "Nenhum header retornado."
+                          : "Nenhuma resposta ainda."
+                    }
+                  />
+                )}
+              </div>
             </div>
 
           </section>
@@ -3525,11 +3738,11 @@ export default function CollectionDetailsPage() {
 
       {isEnvironmentModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 pb-4 pl-4 pr-4 pt-14"
           onClick={closeEnvironmentModal}
         >
           <div
-            className="w-full max-w-5xl overflow-hidden rounded-xl border border-white/15 bg-[#151225] shadow-[0_12px_42px_rgba(0,0,0,0.5)]"
+            className="flex max-h-[calc(100vh-4rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/15 bg-[#151225] shadow-[0_12px_42px_rgba(0,0,0,0.5)]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
@@ -3543,8 +3756,8 @@ export default function CollectionDetailsPage() {
               </button>
             </div>
 
-            <div className="grid min-h-[420px] gap-0 md:grid-cols-[260px_minmax(0,1fr)]">
-              <aside className="border-r border-white/10 bg-[#121025] p-3">
+            <div className="grid min-h-[420px] min-h-0 flex-1 gap-0 md:grid-cols-[260px_minmax(0,1fr)]">
+              <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#121025] p-3">
                 <div className="mb-3 grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -3588,7 +3801,7 @@ export default function CollectionDetailsPage() {
                       </button>
                     </div>
 
-                    <div className="mt-3 space-y-1">
+                    <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
                       {environments.length === 0 && (
                         <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
                           Nenhum ambiente local criado.
@@ -3598,25 +3811,79 @@ export default function CollectionDetailsPage() {
                       {environments.map((environment) => {
                         const isSelected = editingEnvironmentId === environment.id;
                         const isActive = collection.activeEnvironmentId === environment.id;
+                        const isNameEditing = editingEnvironmentNameId === environment.id;
+                        const isDeletePending = pendingDeleteEnvironmentId === environment.id;
 
                         return (
-                          <button
+                          <div
                             key={environment.id}
-                            type="button"
-                            onClick={() => setEditingEnvironmentId(environment.id)}
-                            className={`flex w-full items-center justify-between rounded-md border px-2 py-2 text-left text-sm transition ${
+                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm transition ${
                               isSelected
                                 ? "border-violet-300/55 bg-violet-500/20"
                                 : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
                             }`}
                           >
-                            <span className="truncate text-zinc-100">{environment.name}</span>
-                            {isActive && (
-                              <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-                                ativo
-                              </span>
-                            )}
-                          </button>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setEditingEnvironmentId(environment.id)}
+                              onDoubleClick={() => startEditingEnvironmentName(environment.id, environment.name)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setEditingEnvironmentId(environment.id);
+                                }
+                              }}
+                              className="flex min-w-0 flex-1 items-center gap-2"
+                            >
+                              {isNameEditing ? (
+                                <input
+                                  autoFocus
+                                  value={editingEnvironmentName}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(event) => setEditingEnvironmentName(event.target.value)}
+                                  onBlur={commitEditingEnvironmentName}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      commitEditingEnvironmentName();
+                                    } else if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      cancelEditingEnvironmentName();
+                                    }
+                                  }}
+                                  className="h-8 w-full min-w-0 rounded-md border border-violet-300/45 bg-[#0f0c1f] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                                />
+                              ) : (
+                                <span className="truncate text-zinc-100">{environment.name}</span>
+                              )}
+                              {isActive && (
+                                <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
+                                  ativo
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteEnvironmentClick(environment.id);
+                              }}
+                              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                                isDeletePending
+                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+                              }`}
+                              aria-label={
+                                isDeletePending
+                                  ? "Clique novamente para deletar ambiente"
+                                  : "Deletar ambiente"
+                              }
+                              title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
+                            >
+                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -3639,7 +3906,7 @@ export default function CollectionDetailsPage() {
                       </button>
                     </div>
 
-                    <div className="mt-3 space-y-1">
+                    <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
                       {globalEnvironments.length === 0 && (
                         <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
                           Nenhum ambiente global criado.
@@ -3649,25 +3916,81 @@ export default function CollectionDetailsPage() {
                       {globalEnvironments.map((environment) => {
                         const isSelected = editingGlobalEnvironmentId === environment.id;
                         const isActive = globalEnvironmentState.activeEnvironmentId === environment.id;
+                        const isNameEditing = editingGlobalEnvironmentNameId === environment.id;
+                        const isDeletePending = pendingDeleteGlobalEnvironmentId === environment.id;
 
                         return (
-                          <button
+                          <div
                             key={environment.id}
-                            type="button"
-                            onClick={() => setEditingGlobalEnvironmentId(environment.id)}
-                            className={`flex w-full items-center justify-between rounded-md border px-2 py-2 text-left text-sm transition ${
+                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm transition ${
                               isSelected
                                 ? "border-violet-300/55 bg-violet-500/20"
                                 : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
                             }`}
                           >
-                            <span className="truncate text-zinc-100">{environment.name}</span>
-                            {isActive && (
-                              <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-                                ativo
-                              </span>
-                            )}
-                          </button>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setEditingGlobalEnvironmentId(environment.id)}
+                              onDoubleClick={() =>
+                                startEditingGlobalEnvironmentName(environment.id, environment.name)
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setEditingGlobalEnvironmentId(environment.id);
+                                }
+                              }}
+                              className="flex min-w-0 flex-1 items-center gap-2"
+                            >
+                              {isNameEditing ? (
+                                <input
+                                  autoFocus
+                                  value={editingGlobalEnvironmentName}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(event) => setEditingGlobalEnvironmentName(event.target.value)}
+                                  onBlur={commitEditingGlobalEnvironmentName}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      commitEditingGlobalEnvironmentName();
+                                    } else if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      cancelEditingGlobalEnvironmentName();
+                                    }
+                                  }}
+                                  className="h-8 w-full min-w-0 rounded-md border border-violet-300/45 bg-[#0f0c1f] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+                                />
+                              ) : (
+                                <span className="truncate text-zinc-100">{environment.name}</span>
+                              )}
+                              {isActive && (
+                                <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
+                                  ativo
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteGlobalEnvironmentClick(environment.id);
+                              }}
+                              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                                isDeletePending
+                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+                              }`}
+                              aria-label={
+                                isDeletePending
+                                  ? "Clique novamente para deletar ambiente"
+                                  : "Deletar ambiente"
+                              }
+                              title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
+                            >
+                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -3675,17 +3998,12 @@ export default function CollectionDetailsPage() {
                 )}
               </aside>
 
-              <section className="flex min-h-0 flex-col p-4">
+              <section className="flex min-h-0 flex-col overflow-hidden p-4">
                 {environmentModalScope === "local" ? (
                   editingEnvironment ? (
                     <>
-                      <div className="grid gap-2 border-b border-white/10 pb-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-                        <input
-                          value={editingEnvironment.name}
-                          onChange={(event) => updateEnvironmentName(editingEnvironment.id, event.target.value)}
-                          className="h-10 rounded-md border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                          placeholder="Nome do ambiente local"
-                        />
+                      <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                        <p className="truncate text-sm font-medium text-zinc-100">{editingEnvironment.name}</p>
                         <button
                           type="button"
                           onClick={() => setActiveEnvironmentId(editingEnvironment.id)}
@@ -3696,13 +4014,6 @@ export default function CollectionDetailsPage() {
                           }`}
                         >
                           {collection.activeEnvironmentId === editingEnvironment.id ? "Ambiente local ativo" : "Ativar"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteEnvironment(editingEnvironment.id)}
-                          className="h-10 rounded-md border border-rose-300/45 bg-rose-500/15 px-3 text-sm text-rose-100 transition hover:bg-rose-500/25"
-                        >
-                          Deletar
                         </button>
                       </div>
 
@@ -3715,11 +4026,15 @@ export default function CollectionDetailsPage() {
                         </div>
 
                         <div className="space-y-2">
-                          {editingEnvironment.variables.map((variable) => (
-                            <div
-                              key={variable.id}
-                              className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
-                            >
+                          {editingEnvironment.variables.map((variable) => {
+                            const variableDeleteKey = `${editingEnvironment.id}:${variable.id}`;
+                            const isDeletePending = pendingDeleteEnvironmentVariableKey === variableDeleteKey;
+
+                            return (
+                              <div
+                                key={variable.id}
+                                className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
+                              >
                               <button
                                 type="button"
                                 onClick={() =>
@@ -3778,15 +4093,26 @@ export default function CollectionDetailsPage() {
                               />
                               <button
                                 type="button"
-                                onClick={() => removeEnvironmentVariable(editingEnvironment.id, variable.id)}
-                                className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 text-zinc-200 transition hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                                aria-label="Remover variavel"
-                                title="Remover variavel"
+                                onClick={() =>
+                                  handleRemoveEnvironmentVariableClick(editingEnvironment.id, variable.id)
+                                }
+                                className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
+                                  isDeletePending
+                                    ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                                    : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+                                }`}
+                                aria-label={
+                                  isDeletePending
+                                    ? "Clique novamente para remover variavel"
+                                    : "Remover variavel"
+                                }
+                                title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
                               >
-                                <Trash2 className="h-4 w-4" />
+                                {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
                               </button>
-                            </div>
-                          ))}
+                              </div>
+                            );
+                          })}
                         </div>
 
                         <button
@@ -3803,15 +4129,8 @@ export default function CollectionDetailsPage() {
                   )
                 ) : editingGlobalEnvironment ? (
                   <>
-                    <div className="grid gap-2 border-b border-white/10 pb-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-                      <input
-                        value={editingGlobalEnvironment.name}
-                        onChange={(event) =>
-                          updateGlobalEnvironmentName(editingGlobalEnvironment.id, event.target.value)
-                        }
-                        className="h-10 rounded-md border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                        placeholder="Nome do ambiente global"
-                      />
+                    <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                      <p className="truncate text-sm font-medium text-zinc-100">{editingGlobalEnvironment.name}</p>
                       <button
                         type="button"
                         onClick={() => setActiveGlobalEnvironmentId(editingGlobalEnvironment.id)}
@@ -3825,13 +4144,6 @@ export default function CollectionDetailsPage() {
                           ? "Ambiente global ativo"
                           : "Ativar"}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteGlobalEnvironment(editingGlobalEnvironment.id)}
-                        className="h-10 rounded-md border border-rose-300/45 bg-rose-500/15 px-3 text-sm text-rose-100 transition hover:bg-rose-500/25"
-                      >
-                        Deletar
-                      </button>
                     </div>
 
                     <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
@@ -3843,11 +4155,15 @@ export default function CollectionDetailsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        {editingGlobalEnvironment.variables.map((variable) => (
-                          <div
-                            key={variable.id}
-                            className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
-                          >
+                        {editingGlobalEnvironment.variables.map((variable) => {
+                          const variableDeleteKey = `${editingGlobalEnvironment.id}:${variable.id}`;
+                          const isDeletePending = pendingDeleteGlobalEnvironmentVariableKey === variableDeleteKey;
+
+                          return (
+                            <div
+                              key={variable.id}
+                              className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
+                            >
                             <button
                               type="button"
                               onClick={() =>
@@ -3907,16 +4223,25 @@ export default function CollectionDetailsPage() {
                             <button
                               type="button"
                               onClick={() =>
-                                removeGlobalEnvironmentVariable(editingGlobalEnvironment.id, variable.id)
+                                handleRemoveGlobalEnvironmentVariableClick(editingGlobalEnvironment.id, variable.id)
                               }
-                              className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 text-zinc-200 transition hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                              aria-label="Remover variavel"
-                              title="Remover variavel"
+                              className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
+                                isDeletePending
+                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+                              }`}
+                              aria-label={
+                                isDeletePending
+                                  ? "Clique novamente para remover variavel"
+                                  : "Remover variavel"
+                              }
+                              title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
                             </button>
-                          </div>
-                        ))}
+                            </div>
+                          );
+                        })}
                       </div>
 
                       <button

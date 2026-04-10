@@ -18,6 +18,26 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  min-height: 100dvh;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body.apinaut-desktop {
+  padding-top: 44px;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.apinaut-titlebar {
+  -webkit-app-region: drag;
+}
+
+.apinaut-titlebar-no-drag {
+  -webkit-app-region: no-drag;
 }
 
 * {

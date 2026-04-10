@@ -17,25 +17,48 @@
 /.next/
 /out/
 
-# production
-/build
+# desktop packaging/runtime artifacts
+/.desktop-app/
+/release/
+/dist/
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.exe
+*.msi
+*.blockmap
+latest*.yml
 
 # misc
 .DS_Store
 *.pem
+*.local
+tmp-*/
+tmp-*.txt
+tmp-*.png
+tmp-*.log
+dev-*.log
 
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
 # env files (can opt-in for committing if needed)
 .env*
 
 # vercel
 .vercel
+.turbo
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# editor/OS
+.vscode/
+.idea/
+Thumbs.db
