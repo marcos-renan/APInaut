@@ -181,10 +181,14 @@ const PositionDropZone = ({ id, depth, activeDragId }: PositionDropZoneProps) =>
     <div style={{ paddingLeft: `${depth * REQUEST_LIST_INDENT}px` }}>
       <div
         ref={setNodeRef}
-        className={`my-0.5 h-3 rounded transition ${
-          isOver ? "bg-violet-400/75" : "bg-transparent hover:bg-violet-500/35"
-        }`}
-      />
+        className="relative my-0.5 h-2"
+      >
+        <div
+          className={`absolute left-0 right-0 top-1/2 -translate-y-1/2 rounded transition ${
+            isOver ? "h-[2px] bg-violet-400/85" : "h-px bg-transparent hover:bg-violet-500/45"
+          }`}
+        />
+      </div>
     </div>
   );
 };
