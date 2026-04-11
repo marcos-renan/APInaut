@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { Copy, Minus, X } from "lucide-react";
 
@@ -95,13 +94,12 @@ export const DesktopTitleBar = () => {
       }}
     >
       <div className="flex items-center gap-2 pl-3">
-        <Image
-          src="/apinaut-logo.png"
+        <img
+          src="/apinaut.ico"
           alt="APInaut"
           width={24}
           height={24}
           className="h-6 w-6 rounded-sm object-contain"
-          priority
         />
         <span className="text-sm font-semibold text-zinc-100">APInaut</span>
       </div>

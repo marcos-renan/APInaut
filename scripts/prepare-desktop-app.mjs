@@ -18,6 +18,22 @@ const stagePublicDir = path.join(stageDir, "public");
 const stageElectronDir = path.join(stageDir, "electron");
 const stageBuildDir = path.join(stageDir, "build");
 const stageNodeModulesDir = path.join(stageDir, "node_modules");
+const defaultDebDepends = [
+  "libnspr4",
+  "libnss3",
+  "libxss1",
+  "libasound2t64 | libasound2",
+  "libgtk-3-0",
+  "libgbm1",
+  "libx11-xcb1",
+  "libxcomposite1",
+  "libxdamage1",
+  "libxrandr2",
+  "libxkbcommon0",
+  "libatk-bridge2.0-0",
+  "libdrm2",
+  "libglib2.0-0",
+];
 
 const exists = async (targetPath) => {
   try {
@@ -120,6 +136,9 @@ const run = async () => {
     "",
   );
   const runtimeDependencies = await collectRuntimeDependencies(stageNodeModulesDir);
+  const rootDebDepends = Array.isArray(rootPackage?.build?.deb?.depends)
+    ? rootPackage.build.deb.depends.filter((value) => typeof value === "string")
+    : [];
   const stagePackage = {
     name: rootPackage.name ?? "apinaut",
     version: rootPackage.version ?? "0.1.0",
@@ -181,6 +200,9 @@ const run = async () => {
             arch: ["x64"],
           },
         ],
+      },
+      deb: {
+        depends: rootDebDepends.length > 0 ? rootDebDepends : defaultDebDepends,
       },
     },
   };

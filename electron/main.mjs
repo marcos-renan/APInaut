@@ -9,7 +9,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
-const DEFAULT_WINDOW_ICON_PATH = path.join(__dirname, "..", "public", "apinaut-logo.png");
+const DEFAULT_WINDOW_ICON_PATH = path.join(__dirname, "..", "public", "apinaut.ico");
+const LEGACY_WINDOW_ICON_PATH = path.join(__dirname, "..", "public", "apinaut-logo.png");
 const WINDOWS_WINDOW_ICON_PATH = path.join(__dirname, "..", "build", "icons", "icon.ico");
 const DEFAULT_START_URL = "http://localhost:3210";
 const STANDALONE_SERVER_RELATIVE_PATH = "server.js";
@@ -31,6 +32,10 @@ const resolveWindowIconPath = () => {
 
   if (fs.existsSync(DEFAULT_WINDOW_ICON_PATH)) {
     return DEFAULT_WINDOW_ICON_PATH;
+  }
+
+  if (fs.existsSync(LEGACY_WINDOW_ICON_PATH)) {
+    return LEGACY_WINDOW_ICON_PATH;
   }
 
   return undefined;
