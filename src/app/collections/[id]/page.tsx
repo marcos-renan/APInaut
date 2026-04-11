@@ -8,10 +8,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ChangeEvent as ReactChangeEvent,
   type CSSProperties,
-  type DragEvent as ReactDragEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -24,6 +21,9 @@ import { ResponsePanel } from "@/components/response-panel";
 import { RequestTreePanel } from "@/components/request-tree-panel";
 import { StyledSelect } from "@/components/styled-select";
 import { TemplateSuggestionMenu } from "@/components/template-suggestion-menu";
+import { useRequestDnD } from "@/hooks/use-request-dnd";
+import { useResponseState } from "@/hooks/use-response-state";
+import { useTemplateSuggestions } from "@/hooks/use-template-suggestions";
 import {
   ApiRequest,
   Collection,
@@ -52,7 +52,6 @@ import {
   createMultipartFormRow,
   createRow,
   createRequestNode,
-  escapeHtml,
   DEFAULT_LEFT_PANEL_WIDTH,
   DELETE_CONFIRM_TIMEOUT_MS,
   getInitialPaneWidths,
@@ -72,10 +71,7 @@ import {
   RESIZER_WIDTH,
   resolveRequestWithEnvironment,
   runUserScript,
-  TEMPLATE_SUGGESTION_MENU_HEIGHT,
-  TEMPLATE_SUGGESTION_MENU_WIDTH,
   TEMPLATE_VARIABLE_LOOKUP_REGEX,
-  TEMPLATE_VARIABLE_TRIGGER_REGEX,
   type PaneWidths,
 } from "@/lib/request-page-helpers";
 import {
@@ -84,8 +80,6 @@ import {
   findRequestById,
   hasRequestInTree,
   insertIntoFolderById,
-  moveNodeToPosition,
-  moveNodeToTarget,
   nodeContainsNodeId,
   removeNodeById,
   updateFolderInTree,
@@ -116,31 +110,10 @@ type RequestContextMenuState = {
   y: number;
 } | null;
 
-type DragDropTarget =
-  | { type: "root" }
-  | { type: "folder"; folderId: string }
-  | { type: "position"; parentFolderId: string | null; index: number }
-  | null;
-
-type TemplateSuggestionState = {
-  x: number;
-  y: number;
-  options: string[];
-  query: string;
-  selectedIndex: number;
-  fieldValue: string;
-  replaceFrom: number;
-  replaceTo: number;
-  apply: (nextValue: string, nextCaret: number) => void;
-  fieldElement: HTMLInputElement | HTMLTextAreaElement;
-} | null;
-
 export default function CollectionDetailsPage() {
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const requestContextMenuRef = useRef<HTMLDivElement | null>(null);
-  const templateSuggestionRef = useRef<HTMLDivElement | null>(null);
-  const draggingNodeIdRef = useRef<string | null>(null);
   const initialPaneWidthsRef = useRef<PaneWidths>(getInitialPaneWidths());
   const collections = useSyncExternalStore(
     subscribeCollections,
@@ -184,9 +157,6 @@ export default function CollectionDetailsPage() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
   const [requestContextMenu, setRequestContextMenu] = useState<RequestContextMenuState>(null);
-  const [templateSuggestion, setTemplateSuggestion] = useState<TemplateSuggestionState>(null);
-  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
-  const [dragDropTarget, setDragDropTarget] = useState<DragDropTarget>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useState(initialPaneWidthsRef.current.left);
   const [rightPanelWidth, setRightPanelWidth] = useState(initialPaneWidthsRef.current.right);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
@@ -208,22 +178,6 @@ export default function CollectionDetailsPage() {
 
   useEffect(() => {
     setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    const clearDragState = () => {
-      draggingNodeIdRef.current = null;
-      setDraggingNodeId(null);
-      setDragDropTarget(null);
-    };
-
-    window.addEventListener("dragend", clearDragState);
-    window.addEventListener("drop", clearDragState);
-
-    return () => {
-      window.removeEventListener("dragend", clearDragState);
-      window.removeEventListener("drop", clearDragState);
-    };
   }, []);
 
   useEffect(
@@ -295,52 +249,6 @@ export default function CollectionDetailsPage() {
       window.removeEventListener("scroll", handleScroll, true);
     };
   }, [requestContextMenu]);
-
-  useEffect(() => {
-    if (!templateSuggestion) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (
-        templateSuggestionRef.current &&
-        event.target instanceof Node &&
-        templateSuggestionRef.current.contains(event.target)
-      ) {
-        return;
-      }
-
-      if (
-        event.target instanceof Node &&
-        templateSuggestion.fieldElement &&
-        templateSuggestion.fieldElement.contains(event.target)
-      ) {
-        return;
-      }
-
-      setTemplateSuggestion(null);
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setTemplateSuggestion(null);
-      }
-    };
-
-    const handleScroll = () => {
-      setTemplateSuggestion(null);
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleEscape);
-    window.addEventListener("scroll", handleScroll, true);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleEscape);
-      window.removeEventListener("scroll", handleScroll, true);
-    };
-  }, [templateSuggestion]);
 
   useEffect(() => {
     if (!resizingPane) {
@@ -525,6 +433,13 @@ export default function CollectionDetailsPage() {
 
     return options;
   }, [activeEnvironment, activeGlobalEnvironment]);
+  const {
+    templateSuggestion,
+    templateSuggestionRef,
+    applyTemplateSuggestion,
+    handleTemplateTextFieldChange,
+    handleTemplateTextFieldKeyDown,
+  } = useTemplateSuggestions({ templateVariableOptions });
 
   const activeTemplateVariables = useMemo(() => {
     return {
@@ -777,6 +692,24 @@ export default function CollectionDetailsPage() {
     }));
   };
 
+  const {
+    draggingNodeId,
+    dragDropTarget,
+    beginDragNode,
+    endDragNode,
+    dragOverRoot,
+    dropOnRoot,
+    dragOverFolder,
+    dropOnFolder,
+    dragOverRequest,
+    dropOnRequest,
+    dragOverPosition,
+    dropOnPosition,
+  } = useRequestDnD({
+    updateCollectionTree,
+    setExpandedFolderIds,
+  });
+
   const updateCollectionEnvironments = (updater: (environments: Environment[]) => Environment[]) => {
     updateCurrentCollection((currentCollection) => {
       const nextEnvironments = updater(currentCollection.environments);
@@ -934,163 +867,6 @@ export default function CollectionDetailsPage() {
     } catch {
       setRequestError("Falha ao carregar o arquivo selecionado.");
       setResponseTab("body");
-    }
-  };
-
-  const getTemplateSuggestionOptions = (query: string) => {
-    const normalized = query.trim().toLowerCase();
-
-    if (!normalized) {
-      return templateVariableOptions;
-    }
-
-    return templateVariableOptions.filter((option) => option.toLowerCase().includes(normalized));
-  };
-
-  const openTemplateSuggestionForField = (
-    fieldElement: HTMLInputElement | HTMLTextAreaElement,
-    fieldValue: string,
-    applyValue: (nextValue: string) => void,
-    explicitTrigger: boolean,
-  ) => {
-    const caretPosition = fieldElement.selectionStart ?? fieldValue.length;
-    const beforeCaret = fieldValue.slice(0, caretPosition);
-    const triggerMatch = beforeCaret.match(TEMPLATE_VARIABLE_TRIGGER_REGEX);
-
-    if (!triggerMatch && !explicitTrigger) {
-      setTemplateSuggestion((current) =>
-        current?.fieldElement === fieldElement ? null : current,
-      );
-      return;
-    }
-
-    const replaceFrom = triggerMatch ? caretPosition - triggerMatch[0].length : caretPosition;
-    const replaceTo = caretPosition;
-    const query = triggerMatch ? triggerMatch[1] : "";
-    const options = getTemplateSuggestionOptions(query);
-
-    if (options.length === 0) {
-      setTemplateSuggestion((current) =>
-        current?.fieldElement === fieldElement ? null : current,
-      );
-      return;
-    }
-
-    const fieldRect = fieldElement.getBoundingClientRect();
-    const viewportPadding = REQUEST_CONTEXT_MENU_VIEWPORT_PADDING;
-    const estimatedHeight = Math.min(
-      TEMPLATE_SUGGESTION_MENU_HEIGHT,
-      44 + options.length * 34,
-    );
-    const x = Math.max(
-      viewportPadding,
-      Math.min(fieldRect.left, window.innerWidth - TEMPLATE_SUGGESTION_MENU_WIDTH - viewportPadding),
-    );
-    const y = Math.max(
-      viewportPadding,
-      Math.min(fieldRect.bottom + 6, window.innerHeight - estimatedHeight - viewportPadding),
-    );
-
-    setTemplateSuggestion({
-      x,
-      y,
-      options,
-      query,
-      selectedIndex: 0,
-      fieldValue,
-      replaceFrom,
-      replaceTo,
-      apply: (nextValue: string, nextCaret: number) => {
-        applyValue(nextValue);
-        requestAnimationFrame(() => {
-          fieldElement.focus();
-          fieldElement.setSelectionRange(nextCaret, nextCaret);
-        });
-      },
-      fieldElement,
-    });
-  };
-
-  const applyTemplateSuggestion = (option: string) => {
-    if (!templateSuggestion) {
-      return;
-    }
-
-    const current = templateSuggestion;
-    const replacement = `{{${option}}}`;
-    const nextValue = `${current.fieldValue.slice(0, current.replaceFrom)}${replacement}${current.fieldValue.slice(
-      current.replaceTo,
-    )}`;
-    const nextCaret = current.replaceFrom + replacement.length;
-
-    setTemplateSuggestion(null);
-    current.apply(nextValue, nextCaret);
-  };
-
-  const handleTemplateTextFieldChange = (
-    event: ReactChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-    applyValue: (nextValue: string) => void,
-  ) => {
-    const nextValue = event.target.value;
-    applyValue(nextValue);
-    openTemplateSuggestionForField(event.target, nextValue, applyValue, false);
-  };
-
-  const handleTemplateTextFieldKeyDown = (
-    event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-    currentValue: string,
-    applyValue: (nextValue: string) => void,
-  ) => {
-    const fieldElement = event.currentTarget;
-
-    if (templateSuggestion && templateSuggestion.fieldElement === fieldElement) {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setTemplateSuggestion((current) => {
-          if (!current) {
-            return current;
-          }
-
-          return {
-            ...current,
-            selectedIndex: (current.selectedIndex + 1) % current.options.length,
-          };
-        });
-        return;
-      }
-
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setTemplateSuggestion((current) => {
-          if (!current) {
-            return current;
-          }
-
-          return {
-            ...current,
-            selectedIndex:
-              (current.selectedIndex - 1 + current.options.length) % current.options.length,
-          };
-        });
-        return;
-      }
-
-      if ((event.key === "Enter" || event.key === "Tab") && templateSuggestion.options.length > 0) {
-        event.preventDefault();
-        applyTemplateSuggestion(templateSuggestion.options[templateSuggestion.selectedIndex]);
-        return;
-      }
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setTemplateSuggestion(null);
-        return;
-      }
-    }
-
-    if (event.ctrlKey && event.code === "Space") {
-      event.preventDefault();
-      openTemplateSuggestionForField(fieldElement, currentValue, applyValue, true);
     }
   };
 
@@ -1617,253 +1393,6 @@ export default function CollectionDetailsPage() {
     setExpandedFolderIds((current) => current.filter((folderId) => !nodeContainsNodeId(removed, folderId)));
     setRequestContextMenu(null);
   };
-
-  const beginDragNode = (nodeId: string) => (event: ReactDragEvent<HTMLElement>) => {
-    event.stopPropagation();
-    draggingNodeIdRef.current = nodeId;
-    setDraggingNodeId(nodeId);
-    setDragDropTarget(null);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-apinaut-node-id", nodeId);
-    event.dataTransfer.setData("text/plain", nodeId);
-  };
-
-  const endDragNode = () => {
-    draggingNodeIdRef.current = null;
-    setDraggingNodeId(null);
-    setDragDropTarget(null);
-  };
-
-  const resolveDraggingNodeId = (event?: ReactDragEvent<HTMLElement>) => {
-    if (draggingNodeIdRef.current) {
-      return draggingNodeIdRef.current;
-    }
-
-    if (draggingNodeId) {
-      return draggingNodeId;
-    }
-
-    if (!event) {
-      return null;
-    }
-
-    const transferId =
-      event.dataTransfer.getData("application/x-apinaut-node-id") ||
-      event.dataTransfer.getData("text/plain");
-
-    return transferId.trim() ? transferId.trim() : null;
-  };
-
-  const commitDrop = (targetFolderId: string | null, sourceNodeId?: string | null) => {
-    const draggingId = sourceNodeId ?? resolveDraggingNodeId();
-
-    if (!draggingId) {
-      return;
-    }
-
-    updateCollectionTree((tree) => moveNodeToTarget(tree, draggingId, targetFolderId));
-
-    if (targetFolderId) {
-      setExpandedFolderIds((current) =>
-        current.includes(targetFolderId) ? current : [...current, targetFolderId],
-      );
-    }
-
-    draggingNodeIdRef.current = null;
-    setDragDropTarget(null);
-    setDraggingNodeId(null);
-  };
-
-  const commitDropAtPosition = (
-    targetParentFolderId: string | null,
-    index: number,
-    sourceNodeId?: string | null,
-  ) => {
-    const draggingId = sourceNodeId ?? resolveDraggingNodeId();
-
-    if (!draggingId) {
-      return;
-    }
-
-    updateCollectionTree((tree) =>
-      moveNodeToPosition(tree, draggingId, targetParentFolderId, index),
-    );
-
-    if (targetParentFolderId) {
-      setExpandedFolderIds((current) =>
-        current.includes(targetParentFolderId) ? current : [...current, targetParentFolderId],
-      );
-    }
-
-    draggingNodeIdRef.current = null;
-    setDragDropTarget(null);
-    setDraggingNodeId(null);
-  };
-
-  const dragOverRoot = (event: ReactDragEvent<HTMLDivElement>) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-    setDragDropTarget({ type: "root" });
-  };
-
-  const dropOnRoot = (event: ReactDragEvent<HTMLDivElement>) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    commitDrop(null, draggingId);
-  };
-
-  const dragOverFolder = (
-    event: ReactDragEvent<HTMLElement>,
-    parentFolderId: string | null,
-    index: number,
-    folderId: string,
-  ) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const relativeY = event.clientY - rect.top;
-    const ratio = rect.height > 0 ? relativeY / rect.height : 0.5;
-
-    if (ratio <= 0.25) {
-      setDragDropTarget({ type: "position", parentFolderId, index });
-      return;
-    }
-
-    if (ratio >= 0.75) {
-      setDragDropTarget({ type: "position", parentFolderId, index: index + 1 });
-      return;
-    }
-
-    setDragDropTarget({ type: "folder", folderId });
-  };
-
-  const dropOnFolder = (
-    event: ReactDragEvent<HTMLElement>,
-    parentFolderId: string | null,
-    index: number,
-    folderId: string,
-  ) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const relativeY = event.clientY - rect.top;
-    const ratio = rect.height > 0 ? relativeY / rect.height : 0.5;
-
-    if (ratio <= 0.25) {
-      commitDropAtPosition(parentFolderId, index, draggingId);
-      return;
-    }
-
-    if (ratio >= 0.75) {
-      commitDropAtPosition(parentFolderId, index + 1, draggingId);
-      return;
-    }
-
-    commitDrop(folderId, draggingId);
-  };
-
-  const dragOverRequest = (
-    event: ReactDragEvent<HTMLElement>,
-    parentFolderId: string | null,
-    index: number,
-  ) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const relativeY = event.clientY - rect.top;
-    const targetIndex = relativeY < rect.height / 2 ? index : index + 1;
-    setDragDropTarget({ type: "position", parentFolderId, index: targetIndex });
-  };
-
-  const dropOnRequest = (
-    event: ReactDragEvent<HTMLElement>,
-    parentFolderId: string | null,
-    index: number,
-  ) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const relativeY = event.clientY - rect.top;
-    const targetIndex = relativeY < rect.height / 2 ? index : index + 1;
-    commitDropAtPosition(parentFolderId, targetIndex, draggingId);
-  };
-
-  const dragOverPosition = (
-    event: ReactDragEvent<HTMLDivElement>,
-    parentFolderId: string | null,
-    index: number,
-  ) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-    setDragDropTarget({ type: "position", parentFolderId, index });
-  };
-
-  const dropOnPosition = (
-    event: ReactDragEvent<HTMLDivElement>,
-    parentFolderId: string | null,
-    index: number,
-  ) => {
-    const draggingId = resolveDraggingNodeId(event);
-
-    if (!draggingId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    commitDropAtPosition(parentFolderId, index, draggingId);
-  };
-
   const openRequestContextMenu = (event: ReactMouseEvent<HTMLDivElement>, nodeId: string) => {
     event.preventDefault();
     const targetNode = findNodeById(requestTree, nodeId);
@@ -1896,107 +1425,21 @@ export default function CollectionDetailsPage() {
     });
   };
 
-  const prettyResponseBody = useMemo(() => {
-    if (!result) {
-      return "";
-    }
-
-    const contentType = result.headers["content-type"] ?? "";
-
-    if (contentType.includes("application/json")) {
-      try {
-        return JSON.stringify(JSON.parse(result.body), null, 2);
-      } catch {
-        return result.body;
-      }
-    }
-
-    return result.body;
-  }, [result]);
-
-  const responsePaneContent = useMemo(() => {
-    const errors: string[] = [];
-
-    if (requestError) {
-      errors.push(`Request Error:\n${requestError}`);
-    }
-
-    if (scriptError) {
-      errors.push(`Script Error:\n${scriptError}`);
-    }
-
-    if (responseTab === "headers") {
-      const headersContent = result ? JSON.stringify(result.headers, null, 2) : "";
-      return errors.length ? [errors.join("\n\n"), headersContent].filter(Boolean).join("\n\n") : headersContent;
-    }
-
-    if (responseTab === "cookies") {
-      const cookiesContent = result ? result.cookies.join("\n") : "";
-      return errors.length ? [errors.join("\n\n"), cookiesContent].filter(Boolean).join("\n\n") : cookiesContent;
-    }
-
-    return errors.length
-      ? [errors.join("\n\n"), prettyResponseBody].filter(Boolean).join("\n\n")
-      : prettyResponseBody;
-  }, [prettyResponseBody, requestError, responseTab, result, scriptError]);
-
-  const responseWebPreviewDocument = useMemo(() => {
-    if (!result) {
-      return "";
-    }
-
-    const contentType = (result.headers["content-type"] ?? "").toLowerCase();
-    const rawBody = result.body ?? "";
-    const trimmedBody = rawBody.trim();
-    const looksLikeHtml = /^<!doctype html/i.test(trimmedBody) || /^<html[\s>]/i.test(trimmedBody);
-
-    if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml") || looksLikeHtml) {
-      return rawBody;
-    }
-
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Preview</title></head><body style="margin:0;padding:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:#0f0d18;color:#e5e7eb;"><pre style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(rawBody)}</pre></body></html>`;
-  }, [result]);
-
-  const hasResponseError = Boolean(requestError || scriptError);
-  const responseLanguage = useMemo<"json" | "text">(() => {
-    if (hasResponseError) {
-      return "text";
-    }
-
-    if (responseTab === "headers") {
-      return "json";
-    }
-
-    if (responseTab === "cookies") {
-      return "text";
-    }
-
-    if (!result) {
-      return "text";
-    }
-
-    const contentType = result.headers["content-type"] ?? "";
-
-    if (contentType.includes("application/json")) {
-      return "json";
-    }
-
-    try {
-      JSON.parse(result.body);
-      return "json";
-    } catch {
-      return "text";
-    }
-  }, [hasResponseError, responseTab, result]);
-
-  const hasSuccessfulResponse = Boolean(result && result.status >= 200 && result.status < 300);
-  const statusDisplay = requestError
-    ? "Erro"
-    : result
-      ? `${result.status} ${hasSuccessfulResponse ? "OK" : "Erro"}`
-      : "--";
-  const secondsDisplay = result ? `${(result.durationMs / 1000).toFixed(2)} s` : "--";
-  const transferDisplay = result ? `${(result.totalBytes / 1024).toFixed(2)} KB` : "--";
+  const {
+    responsePaneContent,
+    responseWebPreviewDocument,
+    responseLanguage,
+    hasResponseError,
+    hasSuccessfulResponse,
+    statusDisplay,
+    secondsDisplay,
+    transferDisplay,
+  } = useResponseState({
+    result,
+    requestError,
+    scriptError,
+    responseTab,
+  });
 
   const sendRequest = async () => {
     if (!activeRequest) {
@@ -2701,5 +2144,4 @@ export default function CollectionDetailsPage() {
     </main>
   );
 }
-
 
