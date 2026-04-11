@@ -21,7 +21,6 @@ import { ResponsePanel } from "@/components/response-panel";
 import { RequestTreePanel } from "@/components/request-tree-panel";
 import { StyledSelect } from "@/components/styled-select";
 import { TemplateSuggestionMenu } from "@/components/template-suggestion-menu";
-import { useRequestDnD } from "@/hooks/use-request-dnd";
 import { useResponseState } from "@/hooks/use-response-state";
 import { useTemplateSuggestions } from "@/hooks/use-template-suggestions";
 import {
@@ -80,6 +79,8 @@ import {
   findRequestById,
   hasRequestInTree,
   insertIntoFolderById,
+  moveNodeToPosition,
+  moveNodeToTarget,
   nodeContainsNodeId,
   removeNodeById,
   updateFolderInTree,
@@ -691,24 +692,27 @@ export default function CollectionDetailsPage() {
       requestTree: updater(currentCollection.requestTree),
     }));
   };
+  const moveNodeIntoFolder = (sourceNodeId: string, targetFolderId: string) => {
+    updateCollectionTree((tree) => moveNodeToTarget(tree, sourceNodeId, targetFolderId));
+    setExpandedFolderIds((current) =>
+      current.includes(targetFolderId) ? current : [...current, targetFolderId],
+    );
+  };
+  const moveNodeAtPosition = (
+    sourceNodeId: string,
+    targetParentFolderId: string | null,
+    targetIndex: number,
+  ) => {
+    updateCollectionTree((tree) =>
+      moveNodeToPosition(tree, sourceNodeId, targetParentFolderId, targetIndex),
+    );
 
-  const {
-    draggingNodeId,
-    dragDropTarget,
-    beginDragNode,
-    endDragNode,
-    dragOverRoot,
-    dropOnRoot,
-    dragOverFolder,
-    dropOnFolder,
-    dragOverRequest,
-    dropOnRequest,
-    dragOverPosition,
-    dropOnPosition,
-  } = useRequestDnD({
-    updateCollectionTree,
-    setExpandedFolderIds,
-  });
+    if (targetParentFolderId) {
+      setExpandedFolderIds((current) =>
+        current.includes(targetParentFolderId) ? current : [...current, targetParentFolderId],
+      );
+    }
+  };
 
   const updateCollectionEnvironments = (updater: (environments: Environment[]) => Environment[]) => {
     updateCurrentCollection((currentCollection) => {
@@ -1970,13 +1974,13 @@ export default function CollectionDetailsPage() {
             editingFolderId={editingFolderId}
             editingFolderName={editingFolderName}
             expandedFolderIds={expandedFolderIds}
-            draggingNodeId={draggingNodeId}
-            dragDropTarget={dragDropTarget}
             methodStyleMap={METHOD_STYLE_MAP}
             setEditingRequestName={setEditingRequestName}
             setEditingFolderName={setEditingFolderName}
             createFolder={createFolder}
             createRequest={createRequest}
+            moveNodeIntoFolder={moveNodeIntoFolder}
+            moveNodeAtPosition={moveNodeAtPosition}
             selectRequest={selectRequest}
             toggleFolderExpanded={toggleFolderExpanded}
             startEditingFolderName={startEditingFolderName}
@@ -1985,16 +1989,6 @@ export default function CollectionDetailsPage() {
             cancelEditingFolderName={cancelEditingFolderName}
             commitEditingRequestName={commitEditingRequestName}
             cancelEditingRequestName={cancelEditingRequestName}
-            beginDragNode={beginDragNode}
-            endDragNode={endDragNode}
-            dragOverRoot={dragOverRoot}
-            dropOnRoot={dropOnRoot}
-            dragOverFolder={dragOverFolder}
-            dropOnFolder={dropOnFolder}
-            dragOverRequest={dragOverRequest}
-            dropOnRequest={dropOnRequest}
-            dragOverPosition={dragOverPosition}
-            dropOnPosition={dropOnPosition}
             openRequestContextMenu={openRequestContextMenu}
           />
 

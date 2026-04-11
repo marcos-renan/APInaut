@@ -40,6 +40,15 @@ body.apinaut-desktop {
   -webkit-app-region: no-drag;
 }
 
+button:not(:disabled) {
+  cursor: pointer;
+  transition: filter 140ms ease;
+}
+
+button:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);

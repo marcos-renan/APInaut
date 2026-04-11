@@ -9,7 +9,6 @@ import {
   useState,
   useSyncExternalStore,
   type ChangeEvent,
-  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { dump, load } from "js-yaml";
@@ -65,7 +64,6 @@ export default function Home() {
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isImportDragActive, setIsImportDragActive] = useState(false);
   const [name, setName] = useState("");
   const [ioFeedback, setIoFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -237,7 +235,6 @@ export default function Home() {
 
   const closeImportModal = () => {
     setIsImportModalOpen(false);
-    setIsImportDragActive(false);
   };
 
   const importCollectionsFromFiles = async (inputFiles: File[]) => {
@@ -304,39 +301,6 @@ export default function Home() {
 
   const handleOpenFilePicker = () => {
     importFileInputRef.current?.click();
-  };
-
-  const handleImportDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsImportDragActive(true);
-  };
-
-  const handleImportDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
-      return;
-    }
-
-    setIsImportDragActive(false);
-  };
-
-  const handleImportDrop = async (event: ReactDragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsImportDragActive(false);
-
-    const droppedFiles = Array.from(event.dataTransfer.files ?? []);
-
-    if (droppedFiles.length === 0) {
-      return;
-    }
-
-    try {
-      await importCollectionsFromFiles(droppedFiles);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Falha ao importar arquivo.";
-      showFeedback("error", message);
-    }
   };
 
   const handleCreateCollection = (event: FormEvent<HTMLFormElement>) => {
@@ -543,13 +507,10 @@ export default function Home() {
           >
             <h2 className="text-lg font-semibold text-white">Importar Coleções</h2>
             <p className="mt-1 text-sm text-zinc-300">
-              Arraste arquivos aqui ou escolha manualmente. Formatos aceitos: JSON e YAML.
+              Selecione arquivos manualmente. Formatos aceitos: JSON e YAML.
             </p>
 
             <div
-              onDragOver={handleImportDragOver}
-              onDragLeave={handleImportDragLeave}
-              onDrop={handleImportDrop}
               onClick={handleOpenFilePicker}
               role="button"
               tabIndex={0}
@@ -559,14 +520,10 @@ export default function Home() {
                   handleOpenFilePicker();
                 }
               }}
-              className={`mt-5 min-h-[240px] cursor-pointer rounded-xl border border-dashed p-10 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70 ${
-                isImportDragActive
-                  ? "border-violet-300/60 bg-violet-500/15"
-                  : "border-white/20 bg-[#121025] hover:border-violet-300/35"
-              }`}
+              className="mt-5 min-h-[240px] cursor-pointer rounded-xl border border-dashed border-white/20 bg-[#121025] p-10 text-center transition hover:border-violet-300/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
             >
-              <p className="text-base font-semibold text-zinc-100">Clique ou solte os arquivos aqui</p>
-              <p className="mt-2 text-sm text-zinc-400">Você pode selecionar ou arrastar múltiplos arquivos.</p>
+              <p className="text-base font-semibold text-zinc-100">Clique para escolher os arquivos</p>
+              <p className="mt-2 text-sm text-zinc-400">Você pode selecionar múltiplos arquivos de uma vez.</p>
             </div>
 
             <div className="mt-6 flex items-center justify-end gap-2">

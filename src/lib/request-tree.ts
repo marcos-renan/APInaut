@@ -392,3 +392,59 @@ export const moveNodeToTarget = (
 
   return moveNodeToPosition(tree, sourceNodeId, targetFolderId, Number.MAX_SAFE_INTEGER);
 };
+
+export const reorderNodeWithinParent = (
+  tree: RequestTreeNode[],
+  nodeId: string,
+  direction: "up" | "down",
+): RequestTreeNode[] => {
+  const location = findNodeLocation(tree, nodeId);
+
+  if (!location) {
+    return tree;
+  }
+
+  const reorderSiblings = (siblings: RequestTreeNode[]) => {
+    const index = siblings.findIndex((node) => node.id === nodeId);
+
+    if (index < 0) {
+      return siblings;
+    }
+
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+
+    if (targetIndex < 0 || targetIndex >= siblings.length) {
+      return siblings;
+    }
+
+    const next = [...siblings];
+    const [moved] = next.splice(index, 1);
+    next.splice(targetIndex, 0, moved);
+    return next;
+  };
+
+  if (location.parentFolderId === null) {
+    return reorderSiblings(tree);
+  }
+
+  const reorderInFolder = (nodes: RequestTreeNode[]): RequestTreeNode[] =>
+    nodes.map((node) => {
+      if (node.type !== "folder") {
+        return node;
+      }
+
+      if (node.id === location.parentFolderId) {
+        return {
+          ...node,
+          children: reorderSiblings(node.children),
+        };
+      }
+
+      return {
+        ...node,
+        children: reorderInFolder(node.children),
+      };
+    });
+
+  return reorderInFolder(tree);
+};
