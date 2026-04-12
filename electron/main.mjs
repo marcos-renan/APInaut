@@ -1,6 +1,7 @@
 import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain } from "electron";
@@ -19,9 +20,96 @@ const LOAD_RETRY_DELAY_MS = 250;
 const EMBEDDED_SERVER_BASE_PORT = 3210;
 const EMBEDDED_SERVER_MAX_PORT_TRIES = 30;
 const EMBEDDED_SERVER_READY_TIMEOUT_MS = 120_000;
+const SHOULD_SILENCE_RUNTIME_LOGS = process.env.APINAUT_SILENT !== "0";
+const SHOULD_DETACH_FROM_TERMINAL = process.env.APINAUT_DETACH !== "0";
+const SILENCED_LOG_PATTERNS = [
+  "MESA: error: ZINK: failed to choose pdev",
+  "glx: failed to create drisw screen",
+  "▲ Next.js",
+  "- Local:",
+  "- Network:",
+  "✓ Ready in",
+  "[apinaut] Servidor interno iniciado em",
+];
 
 let mainWindow = null;
 let embeddedWebServerUrl = null;
+
+const maybeDetachFromTerminal = () => {
+  const launchedFromTerminal = Boolean(process.stdout?.isTTY || process.stdin?.isTTY);
+  const alreadyDetachedChild = process.env.APINAUT_DETACHED_CHILD === "1";
+
+  if (
+    process.platform !== "linux" ||
+    !app.isPackaged ||
+    !SHOULD_DETACH_FROM_TERMINAL ||
+    !launchedFromTerminal ||
+    alreadyDetachedChild
+  ) {
+    return;
+  }
+
+  try {
+    const detachedChild = spawn(process.execPath, process.argv.slice(1), {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        APINAUT_DETACHED_CHILD: "1",
+      },
+    });
+    detachedChild.unref();
+    process.exit(0);
+  } catch (error) {
+    console.error("[apinaut] Falha ao destacar processo no Linux.", error);
+  }
+};
+
+maybeDetachFromTerminal();
+
+if (process.platform === "linux") {
+  // Reduz ruidos de driver OpenGL em ambientes Linux/WSL.
+  app.disableHardwareAcceleration();
+
+  if (SHOULD_SILENCE_RUNTIME_LOGS) {
+    // Diminui verbosidade de drivers OpenGL no Linux.
+    process.env.LIBGL_DEBUG = process.env.LIBGL_DEBUG ?? "quiet";
+    process.env.MESA_LOG_LEVEL = process.env.MESA_LOG_LEVEL ?? "0";
+  }
+}
+
+const silenceRuntimeLogsIfNeeded = () => {
+  if (!app.isPackaged || !SHOULD_SILENCE_RUNTIME_LOGS) {
+    return;
+  }
+
+  console.log = () => {};
+  console.info = () => {};
+  console.debug = () => {};
+
+  const shouldSilenceChunk = (chunk) => {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    return SILENCED_LOG_PATTERNS.some((pattern) => text.includes(pattern));
+  };
+
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk, ...args) => {
+    if (shouldSilenceChunk(chunk)) {
+      return true;
+    }
+
+    return originalStdoutWrite(chunk, ...args);
+  };
+
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...args) => {
+    if (shouldSilenceChunk(chunk)) {
+      return true;
+    }
+
+    return originalStderrWrite(chunk, ...args);
+  };
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -346,6 +434,7 @@ const createMainWindow = async () => {
 };
 
 app.whenReady().then(async () => {
+  silenceRuntimeLogsIfNeeded();
   app.setName("APInaut");
   app.setAppUserModelId("com.apinaut.desktop");
 
