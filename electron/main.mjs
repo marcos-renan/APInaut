@@ -195,23 +195,49 @@ const waitForHttpReady = async (urls, timeoutMs) => {
   throw new Error(`Timeout aguardando resposta HTTP em ${targets.join(", ")}.`);
 };
 
-const resolveStandaloneServerPath = () => {
-  const packagedUnpackedPath = path.join(process.resourcesPath, "app", STANDALONE_SERVER_RELATIVE_PATH);
-  if (fs.existsSync(packagedUnpackedPath)) {
-    return packagedUnpackedPath;
+const resolveStandaloneServerCandidates = () => {
+  const candidates = [];
+
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, "app.asar", STANDALONE_SERVER_RELATIVE_PATH));
+    candidates.push(path.join(process.resourcesPath, "app", STANDALONE_SERVER_RELATIVE_PATH));
+    candidates.push(path.join(process.resourcesPath, "app.asar.unpacked", STANDALONE_SERVER_RELATIVE_PATH));
   }
 
-  const packagedPath = path.join(process.resourcesPath, "app.asar", STANDALONE_SERVER_RELATIVE_PATH);
-  if (fs.existsSync(packagedPath)) {
-    return packagedPath;
+  candidates.push(path.join(__dirname, "..", ".next", "standalone", STANDALONE_SERVER_RELATIVE_PATH));
+  candidates.push(path.join(__dirname, "..", STANDALONE_SERVER_RELATIVE_PATH));
+
+  const uniqueCandidates = [];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    const normalized = path.normalize(candidate);
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      uniqueCandidates.push(normalized);
+    }
   }
 
-  const localPath = path.join(__dirname, "..", ".next", "standalone", STANDALONE_SERVER_RELATIVE_PATH);
-  if (fs.existsSync(localPath)) {
-    return localPath;
+  return uniqueCandidates;
+};
+
+const requireStandaloneServer = (serverCandidates) => {
+  const errors = [];
+
+  for (const candidatePath of serverCandidates) {
+    try {
+      require(candidatePath);
+      return candidatePath;
+    } catch (error) {
+      errors.push({
+        path: candidatePath,
+        message: error?.message ?? String(error),
+      });
+    }
   }
 
-  return null;
+  const details = errors.map((entry) => `${entry.path} -> ${entry.message}`).join(" | ");
+  throw new Error(`server.js standalone nao encontrado/carregavel. Tentativas: ${details}`);
 };
 
 const startEmbeddedNextServer = async () => {
@@ -219,10 +245,7 @@ const startEmbeddedNextServer = async () => {
     return embeddedWebServerUrl;
   }
 
-  const serverScriptPath = resolveStandaloneServerPath();
-  if (!serverScriptPath) {
-    throw new Error("server.js standalone nao encontrado no pacote.");
-  }
+  const serverCandidates = resolveStandaloneServerCandidates();
 
   const port = await findFreePort(EMBEDDED_SERVER_BASE_PORT);
   const startUrl = `http://localhost:${port}`;
@@ -231,13 +254,18 @@ const startEmbeddedNextServer = async () => {
   const previousPort = process.env.PORT;
   const previousHostname = process.env.HOSTNAME;
   const previousNodeEnv = process.env.NODE_ENV;
+  const previousDisableNextCache = process.env.APINAUT_DISABLE_NEXT_CACHE;
 
   process.env.PORT = String(port);
   process.env.HOSTNAME = "127.0.0.1";
   process.env.NODE_ENV = "production";
+  // Next standalone roda de /opt no Linux instalado (.deb), que e somente leitura.
+  // Esse flag evita tentativas de escrita em .next/cache durante o boot do servidor.
+  process.env.APINAUT_DISABLE_NEXT_CACHE = "1";
 
+  let loadedServerFrom = null;
   try {
-    require(serverScriptPath);
+    loadedServerFrom = requireStandaloneServer(serverCandidates);
   } finally {
     if (previousPort === undefined) {
       delete process.env.PORT;
@@ -256,11 +284,19 @@ const startEmbeddedNextServer = async () => {
     } else {
       process.env.NODE_ENV = previousNodeEnv;
     }
+
+    if (previousDisableNextCache === undefined) {
+      delete process.env.APINAUT_DISABLE_NEXT_CACHE;
+    } else {
+      process.env.APINAUT_DISABLE_NEXT_CACHE = previousDisableNextCache;
+    }
   }
 
   await waitForHttpReady(probeUrls, EMBEDDED_SERVER_READY_TIMEOUT_MS);
   embeddedWebServerUrl = startUrl;
-  console.log(`[apinaut] Servidor interno iniciado em ${startUrl}`);
+  console.log(
+    `[apinaut] Servidor interno iniciado em ${startUrl}${loadedServerFrom ? ` (${loadedServerFrom})` : ""}`,
+  );
   return startUrl;
 };
 

@@ -63,6 +63,7 @@ import {
   normalizeRowsForUi,
   PANE_LAYOUT_STORAGE_KEY,
   readFileAsBase64,
+  reorderItemsById,
   REQUEST_CONTEXT_MENU_HEIGHT_FOLDER,
   REQUEST_CONTEXT_MENU_HEIGHT_REQUEST,
   REQUEST_CONTEXT_MENU_WIDTH,
@@ -1025,6 +1026,12 @@ export default function CollectionDetailsPage() {
     );
   };
 
+  const reorderEnvironment = (sourceEnvironmentId: string, targetEnvironmentId: string) => {
+    updateCollectionEnvironments((current) =>
+      reorderItemsById(current, sourceEnvironmentId, targetEnvironmentId),
+    );
+  };
+
   const startEditingEnvironmentName = (environmentId: string, currentName: string) => {
     setEditingEnvironmentId(environmentId);
     setEditingEnvironmentNameId(environmentId);
@@ -1084,6 +1091,16 @@ export default function CollectionDetailsPage() {
   const removeEnvironmentVariable = (environmentId: string, variableId: string) => {
     updateEnvironmentVariables(environmentId, (variables) =>
       variables.filter((variable) => variable.id !== variableId),
+    );
+  };
+
+  const reorderEnvironmentVariable = (
+    environmentId: string,
+    sourceVariableId: string,
+    targetVariableId: string,
+  ) => {
+    updateEnvironmentVariables(environmentId, (variables) =>
+      reorderItemsById(variables, sourceVariableId, targetVariableId),
     );
   };
 
@@ -1168,6 +1185,12 @@ export default function CollectionDetailsPage() {
     );
   };
 
+  const reorderGlobalEnvironment = (sourceEnvironmentId: string, targetEnvironmentId: string) => {
+    updateGlobalEnvironments((current) =>
+      reorderItemsById(current, sourceEnvironmentId, targetEnvironmentId),
+    );
+  };
+
   const startEditingGlobalEnvironmentName = (environmentId: string, currentName: string) => {
     setEditingGlobalEnvironmentId(environmentId);
     setEditingGlobalEnvironmentNameId(environmentId);
@@ -1230,6 +1253,16 @@ export default function CollectionDetailsPage() {
   const removeGlobalEnvironmentVariable = (environmentId: string, variableId: string) => {
     updateGlobalEnvironmentVariables(environmentId, (variables) =>
       variables.filter((variable) => variable.id !== variableId),
+    );
+  };
+
+  const reorderGlobalEnvironmentVariable = (
+    environmentId: string,
+    sourceVariableId: string,
+    targetVariableId: string,
+  ) => {
+    updateGlobalEnvironmentVariables(environmentId, (variables) =>
+      reorderItemsById(variables, sourceVariableId, targetVariableId),
     );
   };
 
@@ -1953,7 +1986,7 @@ export default function CollectionDetailsPage() {
             <button
               type="button"
               onClick={openEnvironmentModal}
-              className="h-8 rounded-md border border-violet-300/45 bg-violet-500/15 px-3 text-xs font-medium text-violet-100 transition hover:bg-violet-500/25"
+              className="h-8 rounded-md border border-violet-300/45 bg-violet-500/15 px-3 text-xs font-medium text-violet-100 transition hover:border-violet-300/70 hover:bg-violet-500/30 hover:text-white"
             >
               Ambientes
             </button>
@@ -2106,6 +2139,7 @@ export default function CollectionDetailsPage() {
           commitEditingEnvironmentName,
           cancelEditingEnvironmentName,
           handleDeleteEnvironmentClick,
+          reorderEnvironment,
           newGlobalEnvironmentName,
           setNewGlobalEnvironmentName,
           createGlobalEnvironment,
@@ -2121,18 +2155,21 @@ export default function CollectionDetailsPage() {
           commitEditingGlobalEnvironmentName,
           cancelEditingGlobalEnvironmentName,
           handleDeleteGlobalEnvironmentClick,
+          reorderGlobalEnvironment,
           editingEnvironment,
           setActiveEnvironmentId,
           pendingDeleteEnvironmentVariableKey,
           updateEnvironmentVariable,
           handleRemoveEnvironmentVariableClick,
           addEnvironmentVariable,
+          reorderEnvironmentVariable,
           editingGlobalEnvironment,
           setActiveGlobalEnvironmentId,
           pendingDeleteGlobalEnvironmentVariableKey,
           updateGlobalEnvironmentVariable,
           handleRemoveGlobalEnvironmentVariableClick,
           addGlobalEnvironmentVariable,
+          reorderGlobalEnvironmentVariable,
         }}
       />
     </main>

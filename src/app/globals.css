@@ -40,12 +40,12 @@ body.apinaut-desktop {
   -webkit-app-region: no-drag;
 }
 
-button:not(:disabled) {
+button:not(:disabled):not(.cursor-col-resize):not(.cursor-row-resize) {
   cursor: pointer;
   transition: filter 140ms ease;
 }
 
-button:not(:disabled):hover {
+button:not(:disabled):not(.cursor-col-resize):not(.cursor-row-resize):hover {
   filter: brightness(1.06);
 }
 

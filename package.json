@@ -1,6 +1,6 @@
 {
   "name": "apinaut",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Cliente API desktop APInaut",
   "author": {
     "name": "Marcos Renan",
@@ -58,6 +58,11 @@
       ]
     },
     "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "APInaut",
       "installerIcon": "build/icons/icon.ico",
       "uninstallerIcon": "build/icons/icon.ico",
       "installerHeaderIcon": "build/icons/icon.ico",

@@ -102,6 +102,53 @@ const collectRuntimeDependencies = async (nodeModulesDir) => {
   return dependencies;
 };
 
+const patchNextCacheDirForDesktop = async (stageNodeModulesPath) => {
+  const cacheDirModulePath = path.join(stageNodeModulesPath, "next", "dist", "server", "cache-dir.js");
+  const cacheDirExists = await exists(cacheDirModulePath);
+  if (!cacheDirExists) {
+    return;
+  }
+
+  const source = await fs.readFile(cacheDirModulePath, "utf8");
+  const marker = "process.env.APINAUT_DISABLE_NEXT_CACHE === '1'";
+  if (source.includes(marker)) {
+    return;
+  }
+
+  const target = "const isLikelyEphemeral = (0, _isdocker.default)();";
+  if (!source.includes(target)) {
+    return;
+  }
+
+  const patched = source.replace(
+    target,
+    "const isLikelyEphemeral = process.env.APINAUT_DISABLE_NEXT_CACHE === '1' || (0, _isdocker.default)();",
+  );
+
+  await fs.writeFile(cacheDirModulePath, patched, "utf8");
+};
+
+const patchStandaloneServerForAsar = async (stageRootDir) => {
+  const serverScriptPath = path.join(stageRootDir, "server.js");
+  const serverExists = await exists(serverScriptPath);
+  if (!serverExists) {
+    return;
+  }
+
+  const source = await fs.readFile(serverScriptPath, "utf8");
+  const targetLine = "process.chdir(__dirname)";
+  if (!source.includes(targetLine)) {
+    return;
+  }
+
+  const patched = source.replace(
+    targetLine,
+    "if (process.env.APINAUT_ALLOW_SERVER_CHDIR === '1') process.chdir(__dirname)",
+  );
+
+  await fs.writeFile(serverScriptPath, patched, "utf8");
+};
+
 const run = async () => {
   const standaloneExists = await exists(sourceStandaloneDir);
   if (!standaloneExists) {
@@ -135,7 +182,9 @@ const run = async () => {
     /^[^\d]*/,
     "",
   );
+  await patchStandaloneServerForAsar(stageDir);
   const runtimeDependencies = await collectRuntimeDependencies(stageNodeModulesDir);
+  await patchNextCacheDirForDesktop(stageNodeModulesDir);
   const rootDebDepends = Array.isArray(rootPackage?.build?.deb?.depends)
     ? rootPackage.build.deb.depends.filter((value) => typeof value === "string")
     : [];
@@ -188,6 +237,11 @@ const run = async () => {
         ],
       },
       nsis: {
+        oneClick: false,
+        allowToChangeInstallationDirectory: true,
+        runAfterFinish: true,
+        createDesktopShortcut: true,
+        shortcutName: "APInaut",
         installerIcon: "build/icons/icon.ico",
         uninstallerIcon: "build/icons/icon.ico",
         installerHeaderIcon: "build/icons/icon.ico",

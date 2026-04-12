@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { rcedit } from "rcedit";
@@ -6,6 +7,19 @@ import { rcedit } from "rcedit";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
+
+const readAppVersion = async () => {
+  const packagePath = path.join(projectRoot, "package.json");
+  const raw = await fs.readFile(packagePath, "utf8");
+  const parsed = JSON.parse(raw);
+  const version = typeof parsed.version === "string" ? parsed.version.trim() : "";
+
+  if (!version) {
+    throw new Error("Versao invalida no package.json.");
+  }
+
+  return version;
+};
 
 const run = (command, args, env = {}) =>
   new Promise((resolve, reject) => {
@@ -35,6 +49,8 @@ const main = async () => {
   const iconPath = path.join(projectRoot, "build", "icons", "icon.ico");
   const prepackagedPath = path.join(projectRoot, "release", "win-unpacked");
   const exePath = path.join(prepackagedPath, "APInaut.exe");
+  const appVersion = await readAppVersion();
+  const numericVersion = /^\d+\.\d+\.\d+$/.test(appVersion) ? appVersion : "1.0.0";
 
   await run("npm", ["run", "build"]);
   await run(
@@ -45,8 +61,8 @@ const main = async () => {
 
   await rcedit(exePath, {
     icon: iconPath,
-    "product-version": "0.1.1",
-    "file-version": "0.1.1.0",
+    "product-version": numericVersion,
+    "file-version": `${numericVersion}.0`,
     "version-string": {
       CompanyName: "Marcos Renan",
       FileDescription: "APInaut",

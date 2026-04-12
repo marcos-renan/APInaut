@@ -1,6 +1,20 @@
 "use client";
 
-import { AlertTriangle, Trash2 } from "lucide-react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import { AlertTriangle, GripVertical, Trash2 } from "lucide-react";
+import { type CSSProperties, useState } from "react";
+
 type ModalVariable = {
   id: string;
   enabled: boolean;
@@ -14,6 +28,297 @@ type ModalEnvironment = {
   variables: ModalVariable[];
 };
 
+type Scope = "local" | "global";
+
+const ENVIRONMENT_DND_PREFIX = "environment";
+const VARIABLE_DND_PREFIX = "variable";
+
+const createEnvironmentDndId = (scope: Scope, environmentId: string) =>
+  `${ENVIRONMENT_DND_PREFIX}:${scope}:${environmentId}`;
+
+const parseEnvironmentDndId = (value: string): { scope: Scope; environmentId: string } | null => {
+  const [prefix, scope, environmentId] = value.split(":");
+
+  if (
+    prefix !== ENVIRONMENT_DND_PREFIX ||
+    (scope !== "local" && scope !== "global") ||
+    !environmentId
+  ) {
+    return null;
+  }
+
+  return {
+    scope,
+    environmentId,
+  };
+};
+
+const createVariableDndId = (scope: Scope, environmentId: string, variableId: string) =>
+  `${VARIABLE_DND_PREFIX}:${scope}:${environmentId}:${variableId}`;
+
+const parseVariableDndId = (
+  value: string,
+): { scope: Scope; environmentId: string; variableId: string } | null => {
+  const [prefix, scope, environmentId, variableId] = value.split(":");
+
+  if (
+    prefix !== VARIABLE_DND_PREFIX ||
+    (scope !== "local" && scope !== "global") ||
+    !environmentId ||
+    !variableId
+  ) {
+    return null;
+  }
+
+  return {
+    scope,
+    environmentId,
+    variableId,
+  };
+};
+
+type SortableEnvironmentRowProps = {
+  dndId: string;
+  activeDragId: string | null;
+  environment: ModalEnvironment;
+  isSelected: boolean;
+  isActive: boolean;
+  isNameEditing: boolean;
+  editingName: string;
+  isDeletePending: boolean;
+  onSelect: () => void;
+  onStartEditing: () => void;
+  onEditingNameChange: (value: string) => void;
+  onCommitEditingName: () => void;
+  onCancelEditingName: () => void;
+  onDelete: () => void;
+};
+
+const SortableEnvironmentRow = ({
+  dndId,
+  activeDragId,
+  environment,
+  isSelected,
+  isActive,
+  isNameEditing,
+  editingName,
+  isDeletePending,
+  onSelect,
+  onStartEditing,
+  onEditingNameChange,
+  onCommitEditingName,
+  onCancelEditingName,
+  onDelete,
+}: SortableEnvironmentRowProps) => {
+  const { attributes, listeners, setNodeRef: setDraggableNodeRef, transform, isDragging } = useDraggable({
+    id: dndId,
+  });
+  const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({
+    id: dndId,
+  });
+
+  const setCombinedRef = (element: HTMLDivElement | null) => {
+    setDraggableNodeRef(element);
+    setDroppableNodeRef(element);
+  };
+
+  const rowStyle: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const isDropTarget = Boolean(activeDragId) && activeDragId !== dndId && isOver;
+  const dragInteractionProps = isNameEditing ? {} : { ...attributes, ...listeners };
+
+  return (
+    <div
+      ref={setCombinedRef}
+      style={rowStyle}
+      className={`relative flex w-full cursor-pointer items-center gap-2 rounded-md border px-2 py-2 text-left text-sm transition ${
+        isSelected
+          ? "border-violet-300/55 bg-violet-500/20 hover:border-violet-200/90 hover:bg-violet-500/35 hover:shadow-[0_0_0_1px_rgba(196,181,253,0.35)]"
+          : "border-white/10 bg-[#18142d] hover:border-violet-300/45 hover:bg-[#25203b] hover:shadow-[0_0_0_1px_rgba(196,181,253,0.25)]"
+      }`}
+      {...dragInteractionProps}
+    >
+      {isDropTarget && (
+        <div className="pointer-events-none absolute -top-1 left-0 right-0 h-px bg-violet-400/90" />
+      )}
+
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onDoubleClick={onStartEditing}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect();
+          }
+        }}
+        className="flex min-w-0 flex-1 items-center gap-2"
+      >
+        {isNameEditing ? (
+          <input
+            autoFocus
+            value={editingName}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => onEditingNameChange(event.target.value)}
+            onBlur={onCommitEditingName}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onCommitEditingName();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                onCancelEditingName();
+              }
+            }}
+            className="h-8 w-full min-w-0 rounded-md border border-violet-300/45 bg-[#0f0c1f] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+          />
+        ) : (
+          <span className="truncate text-zinc-100">{environment.name}</span>
+        )}
+
+        {isActive && (
+          <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
+            ativo
+          </span>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onDelete();
+        }}
+        className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+          isDeletePending
+            ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+            : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+        }`}
+        aria-label={isDeletePending ? "Clique novamente para deletar ambiente" : "Deletar ambiente"}
+        title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
+      >
+        {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+};
+
+type SortableVariableRowProps = {
+  dndId: string;
+  activeDragId: string | null;
+  variable: ModalVariable;
+  isDeletePending: boolean;
+  onToggleEnabled: () => void;
+  onKeyChange: (value: string) => void;
+  onValueChange: (value: string) => void;
+  onDelete: () => void;
+};
+
+const SortableVariableRow = ({
+  dndId,
+  activeDragId,
+  variable,
+  isDeletePending,
+  onToggleEnabled,
+  onKeyChange,
+  onValueChange,
+  onDelete,
+}: SortableVariableRowProps) => {
+  const { attributes, listeners, setNodeRef: setDraggableNodeRef, transform, isDragging } = useDraggable({
+    id: dndId,
+  });
+  const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({
+    id: dndId,
+  });
+
+  const setCombinedRef = (element: HTMLDivElement | null) => {
+    setDraggableNodeRef(element);
+    setDroppableNodeRef(element);
+  };
+
+  const rowStyle: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const isDropTarget = Boolean(activeDragId) && activeDragId !== dndId && isOver;
+
+  return (
+    <div
+      ref={setCombinedRef}
+      style={rowStyle}
+      className={`relative grid gap-2 md:grid-cols-[28px_48px_minmax(0,1fr)_minmax(0,1fr)_40px]`}
+    >
+      {isDropTarget && (
+        <div className="pointer-events-none absolute -top-1 left-0 right-0 h-px bg-violet-400/90" />
+      )}
+
+      <button
+        type="button"
+        className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 bg-[#0f0c1f] text-zinc-300 transition hover:border-violet-300/50 hover:text-violet-100"
+        aria-label="Arrastar variavel"
+        title="Arrastar variavel"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+
+      <button
+        type="button"
+        onClick={onToggleEnabled}
+        className={`flex h-10 items-center justify-center rounded-lg border transition ${
+          variable.enabled
+            ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
+            : "border-white/15 bg-[#121025] hover:bg-white/10"
+        }`}
+        aria-pressed={variable.enabled}
+        aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
+      >
+        <span className={`relative h-5 w-9 rounded-full transition ${variable.enabled ? "bg-emerald-500" : "bg-zinc-700"}`}>
+          <span
+            className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
+              variable.enabled ? "translate-x-4" : ""
+            }`}
+          />
+        </span>
+      </button>
+
+      <input
+        value={variable.key}
+        onChange={(event) => onKeyChange(event.target.value)}
+        className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+        placeholder="api_host"
+      />
+
+      <input
+        value={variable.value}
+        onChange={(event) => onValueChange(event.target.value)}
+        className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
+        placeholder="http://localhost:8080"
+      />
+
+      <button
+        type="button"
+        onClick={onDelete}
+        className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
+          isDeletePending
+            ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+            : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
+        }`}
+        aria-label={isDeletePending ? "Clique novamente para remover variavel" : "Remover variavel"}
+        title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
+      >
+        {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+};
+
 type EnvironmentModalProps = {
   environments: ModalEnvironment[];
   globalEnvironments: ModalEnvironment[];
@@ -21,6 +326,18 @@ type EnvironmentModalProps = {
   globalEnvironmentState: { activeEnvironmentId: string | null };
   editingEnvironment: ModalEnvironment | null;
   editingGlobalEnvironment: ModalEnvironment | null;
+  reorderEnvironment: (sourceEnvironmentId: string, targetEnvironmentId: string) => void;
+  reorderGlobalEnvironment: (sourceEnvironmentId: string, targetEnvironmentId: string) => void;
+  reorderEnvironmentVariable: (
+    environmentId: string,
+    sourceVariableId: string,
+    targetVariableId: string,
+  ) => void;
+  reorderGlobalEnvironmentVariable: (
+    environmentId: string,
+    sourceVariableId: string,
+    targetVariableId: string,
+  ) => void;
   [key: string]: any;
 };
 
@@ -45,6 +362,7 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
     commitEditingEnvironmentName,
     cancelEditingEnvironmentName,
     handleDeleteEnvironmentClick,
+    reorderEnvironment,
     newGlobalEnvironmentName,
     setNewGlobalEnvironmentName,
     createGlobalEnvironment,
@@ -60,19 +378,143 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
     commitEditingGlobalEnvironmentName,
     cancelEditingGlobalEnvironmentName,
     handleDeleteGlobalEnvironmentClick,
+    reorderGlobalEnvironment,
     editingEnvironment,
     setActiveEnvironmentId,
     pendingDeleteEnvironmentVariableKey,
     updateEnvironmentVariable,
     handleRemoveEnvironmentVariableClick,
     addEnvironmentVariable,
+    reorderEnvironmentVariable,
     editingGlobalEnvironment,
     setActiveGlobalEnvironmentId,
     pendingDeleteGlobalEnvironmentVariableKey,
     updateGlobalEnvironmentVariable,
     handleRemoveGlobalEnvironmentVariableClick,
     addGlobalEnvironmentVariable,
+    reorderGlobalEnvironmentVariable,
   } = props;
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+  );
+
+  const [activeLocalEnvironmentDragId, setActiveLocalEnvironmentDragId] = useState<string | null>(null);
+  const [activeGlobalEnvironmentDragId, setActiveGlobalEnvironmentDragId] = useState<string | null>(null);
+  const [activeLocalVariableDragId, setActiveLocalVariableDragId] = useState<string | null>(null);
+  const [activeGlobalVariableDragId, setActiveGlobalVariableDragId] = useState<string | null>(null);
+
+  const handleLocalEnvironmentDragStart = (event: DragStartEvent) => {
+    setActiveLocalEnvironmentDragId(String(event.active.id));
+  };
+
+  const handleLocalEnvironmentDragCancel = () => {
+    setActiveLocalEnvironmentDragId(null);
+  };
+
+  const handleLocalEnvironmentDragEnd = (event: DragEndEvent) => {
+    setActiveLocalEnvironmentDragId(null);
+
+    if (!event.over?.id) {
+      return;
+    }
+
+    const active = parseEnvironmentDndId(String(event.active.id));
+    const over = parseEnvironmentDndId(String(event.over.id));
+
+    if (!active || !over || active.scope !== "local" || over.scope !== "local") {
+      return;
+    }
+
+    reorderEnvironment(active.environmentId, over.environmentId);
+  };
+
+  const handleGlobalEnvironmentDragStart = (event: DragStartEvent) => {
+    setActiveGlobalEnvironmentDragId(String(event.active.id));
+  };
+
+  const handleGlobalEnvironmentDragCancel = () => {
+    setActiveGlobalEnvironmentDragId(null);
+  };
+
+  const handleGlobalEnvironmentDragEnd = (event: DragEndEvent) => {
+    setActiveGlobalEnvironmentDragId(null);
+
+    if (!event.over?.id) {
+      return;
+    }
+
+    const active = parseEnvironmentDndId(String(event.active.id));
+    const over = parseEnvironmentDndId(String(event.over.id));
+
+    if (!active || !over || active.scope !== "global" || over.scope !== "global") {
+      return;
+    }
+
+    reorderGlobalEnvironment(active.environmentId, over.environmentId);
+  };
+
+  const handleLocalVariableDragStart = (event: DragStartEvent) => {
+    setActiveLocalVariableDragId(String(event.active.id));
+  };
+
+  const handleLocalVariableDragCancel = () => {
+    setActiveLocalVariableDragId(null);
+  };
+
+  const handleLocalVariableDragEnd = (event: DragEndEvent) => {
+    setActiveLocalVariableDragId(null);
+
+    if (!event.over?.id) {
+      return;
+    }
+
+    const active = parseVariableDndId(String(event.active.id));
+    const over = parseVariableDndId(String(event.over.id));
+
+    if (!active || !over || active.scope !== "local" || over.scope !== "local") {
+      return;
+    }
+
+    if (active.environmentId !== over.environmentId) {
+      return;
+    }
+
+    reorderEnvironmentVariable(active.environmentId, active.variableId, over.variableId);
+  };
+
+  const handleGlobalVariableDragStart = (event: DragStartEvent) => {
+    setActiveGlobalVariableDragId(String(event.active.id));
+  };
+
+  const handleGlobalVariableDragCancel = () => {
+    setActiveGlobalVariableDragId(null);
+  };
+
+  const handleGlobalVariableDragEnd = (event: DragEndEvent) => {
+    setActiveGlobalVariableDragId(null);
+
+    if (!event.over?.id) {
+      return;
+    }
+
+    const active = parseVariableDndId(String(event.active.id));
+    const over = parseVariableDndId(String(event.over.id));
+
+    if (!active || !over || active.scope !== "global" || over.scope !== "global") {
+      return;
+    }
+
+    if (active.environmentId !== over.environmentId) {
+      return;
+    }
+
+    reorderGlobalEnvironmentVariable(active.environmentId, active.variableId, over.variableId);
+  };
 
   return (
     <>
@@ -141,92 +583,48 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                       </button>
                     </div>
 
-                    <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
-                      {environments.length === 0 && (
-                        <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
-                          Nenhum ambiente local criado.
-                        </p>
-                      )}
+                    <DndContext
+                      sensors={dndSensors}
+                      collisionDetection={closestCenter}
+                      onDragStart={handleLocalEnvironmentDragStart}
+                      onDragEnd={handleLocalEnvironmentDragEnd}
+                      onDragCancel={handleLocalEnvironmentDragCancel}
+                    >
+                      <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
+                        {environments.length === 0 && (
+                          <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
+                            Nenhum ambiente local criado.
+                          </p>
+                        )}
 
-                      {environments.map((environment) => {
-                        const isSelected = editingEnvironmentId === environment.id;
-                        const isActive = collection.activeEnvironmentId === environment.id;
-                        const isNameEditing = editingEnvironmentNameId === environment.id;
-                        const isDeletePending = pendingDeleteEnvironmentId === environment.id;
+                        {environments.map((environment) => {
+                          const isSelected = editingEnvironmentId === environment.id;
+                          const isActive = collection.activeEnvironmentId === environment.id;
+                          const isNameEditing = editingEnvironmentNameId === environment.id;
+                          const isDeletePending = pendingDeleteEnvironmentId === environment.id;
 
-                        return (
-                          <div
-                            key={environment.id}
-                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm transition ${
-                              isSelected
-                                ? "border-violet-300/55 bg-violet-500/20"
-                                : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
-                            }`}
-                          >
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setEditingEnvironmentId(environment.id)}
-                              onDoubleClick={() => startEditingEnvironmentName(environment.id, environment.name)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  setEditingEnvironmentId(environment.id);
-                                }
-                              }}
-                              className="flex min-w-0 flex-1 items-center gap-2"
-                            >
-                              {isNameEditing ? (
-                                <input
-                                  autoFocus
-                                  value={editingEnvironmentName}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onChange={(event) => setEditingEnvironmentName(event.target.value)}
-                                  onBlur={commitEditingEnvironmentName}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      commitEditingEnvironmentName();
-                                    } else if (event.key === "Escape") {
-                                      event.preventDefault();
-                                      cancelEditingEnvironmentName();
-                                    }
-                                  }}
-                                  className="h-8 w-full min-w-0 rounded-md border border-violet-300/45 bg-[#0f0c1f] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                />
-                              ) : (
-                                <span className="truncate text-zinc-100">{environment.name}</span>
-                              )}
-                              {isActive && (
-                                <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-                                  ativo
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteEnvironmentClick(environment.id);
-                              }}
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
-                                isDeletePending
-                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                              }`}
-                              aria-label={
-                                isDeletePending
-                                  ? "Clique novamente para deletar ambiente"
-                                  : "Deletar ambiente"
-                              }
-                              title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
-                            >
-                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          return (
+                            <SortableEnvironmentRow
+                              key={environment.id}
+                              dndId={createEnvironmentDndId("local", environment.id)}
+                              activeDragId={activeLocalEnvironmentDragId}
+                              environment={environment}
+                              isSelected={isSelected}
+                              isActive={isActive}
+                              isNameEditing={isNameEditing}
+                              editingName={editingEnvironmentName}
+                              isDeletePending={isDeletePending}
+                              onSelect={() => setEditingEnvironmentId(environment.id)}
+                              onStartEditing={() => startEditingEnvironmentName(environment.id, environment.name)}
+                              onEditingNameChange={setEditingEnvironmentName}
+                              onCommitEditingName={commitEditingEnvironmentName}
+                              onCancelEditingName={cancelEditingEnvironmentName}
+                              onDelete={() => handleDeleteEnvironmentClick(environment.id)}
+                            />
+                          );
+                        })}
+                      </div>
+                    </DndContext>
                   </>
                 ) : (
                   <>
@@ -245,95 +643,50 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                         Criar ambiente global
                       </button>
                     </div>
+                    <DndContext
+                      sensors={dndSensors}
+                      collisionDetection={closestCenter}
+                      onDragStart={handleGlobalEnvironmentDragStart}
+                      onDragEnd={handleGlobalEnvironmentDragEnd}
+                      onDragCancel={handleGlobalEnvironmentDragCancel}
+                    >
+                      <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
+                        {globalEnvironments.length === 0 && (
+                          <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
+                            Nenhum ambiente global criado.
+                          </p>
+                        )}
 
-                    <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
-                      {globalEnvironments.length === 0 && (
-                        <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
-                          Nenhum ambiente global criado.
-                        </p>
-                      )}
+                        {globalEnvironments.map((environment) => {
+                          const isSelected = editingGlobalEnvironmentId === environment.id;
+                          const isActive = globalEnvironmentState.activeEnvironmentId === environment.id;
+                          const isNameEditing = editingGlobalEnvironmentNameId === environment.id;
+                          const isDeletePending = pendingDeleteGlobalEnvironmentId === environment.id;
 
-                      {globalEnvironments.map((environment) => {
-                        const isSelected = editingGlobalEnvironmentId === environment.id;
-                        const isActive = globalEnvironmentState.activeEnvironmentId === environment.id;
-                        const isNameEditing = editingGlobalEnvironmentNameId === environment.id;
-                        const isDeletePending = pendingDeleteGlobalEnvironmentId === environment.id;
-
-                        return (
-                          <div
-                            key={environment.id}
-                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm transition ${
-                              isSelected
-                                ? "border-violet-300/55 bg-violet-500/20"
-                                : "border-white/10 bg-[#18142d] hover:bg-[#201b36]"
-                            }`}
-                          >
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setEditingGlobalEnvironmentId(environment.id)}
-                              onDoubleClick={() =>
+                          return (
+                            <SortableEnvironmentRow
+                              key={environment.id}
+                              dndId={createEnvironmentDndId("global", environment.id)}
+                              activeDragId={activeGlobalEnvironmentDragId}
+                              environment={environment}
+                              isSelected={isSelected}
+                              isActive={isActive}
+                              isNameEditing={isNameEditing}
+                              editingName={editingGlobalEnvironmentName}
+                              isDeletePending={isDeletePending}
+                              onSelect={() => setEditingGlobalEnvironmentId(environment.id)}
+                              onStartEditing={() =>
                                 startEditingGlobalEnvironmentName(environment.id, environment.name)
                               }
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  setEditingGlobalEnvironmentId(environment.id);
-                                }
-                              }}
-                              className="flex min-w-0 flex-1 items-center gap-2"
-                            >
-                              {isNameEditing ? (
-                                <input
-                                  autoFocus
-                                  value={editingGlobalEnvironmentName}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onChange={(event) => setEditingGlobalEnvironmentName(event.target.value)}
-                                  onBlur={commitEditingGlobalEnvironmentName}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      commitEditingGlobalEnvironmentName();
-                                    } else if (event.key === "Escape") {
-                                      event.preventDefault();
-                                      cancelEditingGlobalEnvironmentName();
-                                    }
-                                  }}
-                                  className="h-8 w-full min-w-0 rounded-md border border-violet-300/45 bg-[#0f0c1f] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                />
-                              ) : (
-                                <span className="truncate text-zinc-100">{environment.name}</span>
-                              )}
-                              {isActive && (
-                                <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-                                  ativo
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteGlobalEnvironmentClick(environment.id);
-                              }}
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
-                                isDeletePending
-                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                              }`}
-                              aria-label={
-                                isDeletePending
-                                  ? "Clique novamente para deletar ambiente"
-                                  : "Deletar ambiente"
-                              }
-                              title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
-                            >
-                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+                              onEditingNameChange={setEditingGlobalEnvironmentName}
+                              onCommitEditingName={commitEditingGlobalEnvironmentName}
+                              onCancelEditingName={cancelEditingGlobalEnvironmentName}
+                              onDelete={() => handleDeleteGlobalEnvironmentClick(environment.id)}
+                            />
+                          );
+                        })}
+                      </div>
+                    </DndContext>
                   </>
                 )}
               </aside>
@@ -358,102 +711,55 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                       </div>
 
                       <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
-                        <div className="mb-2 hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
+                        <div className="mb-2 hidden grid-cols-[28px_48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
+                          <span>Mover</span>
                           <span>Ativo</span>
                           <span>Variavel</span>
                           <span>Valor</span>
                           <span>Acao</span>
                         </div>
 
-                        <div className="space-y-2">
-                          {editingEnvironment.variables.map((variable) => {
-                            const variableDeleteKey = `${editingEnvironment.id}:${variable.id}`;
-                            const isDeletePending = pendingDeleteEnvironmentVariableKey === variableDeleteKey;
+                        <DndContext
+                          sensors={dndSensors}
+                          collisionDetection={closestCenter}
+                          onDragStart={handleLocalVariableDragStart}
+                          onDragEnd={handleLocalVariableDragEnd}
+                          onDragCancel={handleLocalVariableDragCancel}
+                        >
+                          <div className="space-y-2">
+                            {editingEnvironment.variables.map((variable) => {
+                              const variableDeleteKey = `${editingEnvironment.id}:${variable.id}`;
+                              const isDeletePending = pendingDeleteEnvironmentVariableKey === variableDeleteKey;
 
-                            return (
-                              <div
-                                key={variable.id}
-                                className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
-                              >
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateEnvironmentVariable(
-                                    editingEnvironment.id,
-                                    variable.id,
-                                    "enabled",
-                                    !variable.enabled,
-                                  )
-                                }
-                                className={`flex h-10 items-center justify-center rounded-lg border transition ${
-                                  variable.enabled
-                                    ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
-                                    : "border-white/15 bg-[#121025] hover:bg-white/10"
-                                }`}
-                                aria-pressed={variable.enabled}
-                                aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
-                              >
-                                <span
-                                  className={`relative h-5 w-9 rounded-full transition ${
-                                    variable.enabled ? "bg-emerald-500" : "bg-zinc-700"
-                                  }`}
-                                >
-                                  <span
-                                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                                      variable.enabled ? "translate-x-4" : ""
-                                    }`}
-                                  />
-                                </span>
-                              </button>
-                              <input
-                                value={variable.key}
-                                onChange={(event) =>
-                                  updateEnvironmentVariable(
-                                    editingEnvironment.id,
-                                    variable.id,
-                                    "key",
-                                    event.target.value,
-                                  )
-                                }
-                                className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                placeholder="api_host"
-                              />
-                              <input
-                                value={variable.value}
-                                onChange={(event) =>
-                                  updateEnvironmentVariable(
-                                    editingEnvironment.id,
-                                    variable.id,
-                                    "value",
-                                    event.target.value,
-                                  )
-                                }
-                                className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                                placeholder="http://localhost:8080"
-                              />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleRemoveEnvironmentVariableClick(editingEnvironment.id, variable.id)
-                                }
-                                className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
-                                  isDeletePending
-                                    ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                    : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                                }`}
-                                aria-label={
-                                  isDeletePending
-                                    ? "Clique novamente para remover variavel"
-                                    : "Remover variavel"
-                                }
-                                title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
-                              >
-                                {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                              </button>
-                              </div>
-                            );
-                          })}
-                        </div>
+                              return (
+                                <SortableVariableRow
+                                  key={variable.id}
+                                  dndId={createVariableDndId("local", editingEnvironment.id, variable.id)}
+                                  activeDragId={activeLocalVariableDragId}
+                                  variable={variable}
+                                  isDeletePending={isDeletePending}
+                                  onToggleEnabled={() =>
+                                    updateEnvironmentVariable(
+                                      editingEnvironment.id,
+                                      variable.id,
+                                      "enabled",
+                                      !variable.enabled,
+                                    )
+                                  }
+                                  onKeyChange={(value) =>
+                                    updateEnvironmentVariable(editingEnvironment.id, variable.id, "key", value)
+                                  }
+                                  onValueChange={(value) =>
+                                    updateEnvironmentVariable(editingEnvironment.id, variable.id, "value", value)
+                                  }
+                                  onDelete={() =>
+                                    handleRemoveEnvironmentVariableClick(editingEnvironment.id, variable.id)
+                                  }
+                                />
+                              );
+                            })}
+                          </div>
+                        </DndContext>
 
                         <button
                           type="button"
@@ -487,102 +793,68 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                     </div>
 
                     <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
-                      <div className="mb-2 hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
+                      <div className="mb-2 hidden grid-cols-[28px_48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
+                        <span>Mover</span>
                         <span>Ativo</span>
                         <span>Variavel</span>
                         <span>Valor</span>
                         <span>Acao</span>
                       </div>
 
-                      <div className="space-y-2">
-                        {editingGlobalEnvironment.variables.map((variable) => {
-                          const variableDeleteKey = `${editingGlobalEnvironment.id}:${variable.id}`;
-                          const isDeletePending = pendingDeleteGlobalEnvironmentVariableKey === variableDeleteKey;
+                      <DndContext
+                        sensors={dndSensors}
+                        collisionDetection={closestCenter}
+                        onDragStart={handleGlobalVariableDragStart}
+                        onDragEnd={handleGlobalVariableDragEnd}
+                        onDragCancel={handleGlobalVariableDragCancel}
+                      >
+                        <div className="space-y-2">
+                          {editingGlobalEnvironment.variables.map((variable) => {
+                            const variableDeleteKey = `${editingGlobalEnvironment.id}:${variable.id}`;
+                            const isDeletePending = pendingDeleteGlobalEnvironmentVariableKey === variableDeleteKey;
 
-                          return (
-                            <div
-                              key={variable.id}
-                              className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]"
-                            >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateGlobalEnvironmentVariable(
-                                  editingGlobalEnvironment.id,
-                                  variable.id,
-                                  "enabled",
-                                  !variable.enabled,
-                                )
-                              }
-                              className={`flex h-10 items-center justify-center rounded-lg border transition ${
-                                variable.enabled
-                                  ? "border-emerald-300/60 bg-emerald-500/15 hover:bg-emerald-500/20"
-                                  : "border-white/15 bg-[#121025] hover:bg-white/10"
-                              }`}
-                              aria-pressed={variable.enabled}
-                              aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
-                            >
-                              <span
-                                className={`relative h-5 w-9 rounded-full transition ${
-                                  variable.enabled ? "bg-emerald-500" : "bg-zinc-700"
-                                }`}
-                              >
-                                <span
-                                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                                    variable.enabled ? "translate-x-4" : ""
-                                  }`}
-                                />
-                              </span>
-                            </button>
-                            <input
-                              value={variable.key}
-                              onChange={(event) =>
-                                updateGlobalEnvironmentVariable(
-                                  editingGlobalEnvironment.id,
-                                  variable.id,
-                                  "key",
-                                  event.target.value,
-                                )
-                              }
-                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                              placeholder="api_host"
-                            />
-                            <input
-                              value={variable.value}
-                              onChange={(event) =>
-                                updateGlobalEnvironmentVariable(
-                                  editingGlobalEnvironment.id,
-                                  variable.id,
-                                  "value",
-                                  event.target.value,
-                                )
-                              }
-                              className="h-10 w-full rounded-lg border border-white/15 bg-[#121025] px-3 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                              placeholder="http://localhost:8080"
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleRemoveGlobalEnvironmentVariableClick(editingGlobalEnvironment.id, variable.id)
-                              }
-                              className={`inline-flex h-10 items-center justify-center rounded-lg border transition ${
-                                isDeletePending
-                                  ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
-                                  : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
-                              }`}
-                              aria-label={
-                                isDeletePending
-                                  ? "Clique novamente para remover variavel"
-                                  : "Remover variavel"
-                              }
-                              title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
-                            >
-                              {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                            </button>
-                            </div>
-                          );
-                        })}
-                      </div>
+                            return (
+                              <SortableVariableRow
+                                key={variable.id}
+                                dndId={createVariableDndId("global", editingGlobalEnvironment.id, variable.id)}
+                                activeDragId={activeGlobalVariableDragId}
+                                variable={variable}
+                                isDeletePending={isDeletePending}
+                                onToggleEnabled={() =>
+                                  updateGlobalEnvironmentVariable(
+                                    editingGlobalEnvironment.id,
+                                    variable.id,
+                                    "enabled",
+                                    !variable.enabled,
+                                  )
+                                }
+                                onKeyChange={(value) =>
+                                  updateGlobalEnvironmentVariable(
+                                    editingGlobalEnvironment.id,
+                                    variable.id,
+                                    "key",
+                                    value,
+                                  )
+                                }
+                                onValueChange={(value) =>
+                                  updateGlobalEnvironmentVariable(
+                                    editingGlobalEnvironment.id,
+                                    variable.id,
+                                    "value",
+                                    value,
+                                  )
+                                }
+                                onDelete={() =>
+                                  handleRemoveGlobalEnvironmentVariableClick(
+                                    editingGlobalEnvironment.id,
+                                    variable.id,
+                                  )
+                                }
+                              />
+                            );
+                          })}
+                        </div>
+                      </DndContext>
 
                       <button
                         type="button"
