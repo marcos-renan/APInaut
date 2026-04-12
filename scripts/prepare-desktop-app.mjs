@@ -246,7 +246,7 @@ const run = async () => {
         uninstallerIcon: "build/icons/icon.ico",
         installerHeaderIcon: "build/icons/icon.ico",
         installerSidebar: "build/installer-sidebar.bmp",
-        uninstallerSidebar: "build/installer-sidebar.bmp",
+        uninstallerSidebar: "build/uninstaller-finish.bmp",
         installerHeader: "build/installer-header.bmp",
       },
       linux: {

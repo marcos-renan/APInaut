@@ -59,18 +59,23 @@ const main = async () => {
     { CSC_IDENTITY_AUTO_DISCOVERY: "false" },
   );
 
-  await rcedit(exePath, {
-    icon: iconPath,
-    "product-version": numericVersion,
-    "file-version": `${numericVersion}.0`,
-    "version-string": {
-      CompanyName: "Marcos Renan",
-      FileDescription: "APInaut",
-      ProductName: "APInaut",
-      OriginalFilename: "APInaut.exe",
-      InternalName: "APInaut",
-    },
-  });
+  try {
+    await rcedit(exePath, {
+      icon: iconPath,
+      "product-version": numericVersion,
+      "file-version": `${numericVersion}.0`,
+      "version-string": {
+        CompanyName: "Marcos Renan",
+        FileDescription: "APInaut",
+        ProductName: "APInaut",
+        OriginalFilename: "APInaut.exe",
+        InternalName: "APInaut",
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[apinaut] Aviso: nao foi possivel aplicar metadados com rcedit (${message}). Continuando build.`);
+  }
 
   await run(
     "npx",
