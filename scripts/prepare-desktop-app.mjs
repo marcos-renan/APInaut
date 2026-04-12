@@ -158,7 +158,12 @@ const run = async () => {
       appId: "com.apinaut.desktop",
       productName: "APInaut",
       electronVersion: configuredElectronVersion || "41.2.0",
-      asar: false,
+      asar: true,
+      asarUnpack: [
+        "**/*.node",
+        "node_modules/sharp/**/*",
+        "node_modules/@img/**/*",
+      ],
       npmRebuild: false,
       nodeGypRebuild: false,
       buildDependenciesFromSource: false,
