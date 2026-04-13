@@ -206,6 +206,70 @@ const formatNetworkError = (error: unknown) => {
   return details.join(" | ");
 };
 
+const extractErrorCode = (error: unknown): string | null => {
+  if (error && typeof error === "object") {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && code.trim()) {
+      return code.trim().toUpperCase();
+    }
+
+    const cause = (error as { cause?: unknown }).cause;
+    if (cause && typeof cause === "object") {
+      const causeCode = (cause as { code?: unknown }).code;
+      if (typeof causeCode === "string" && causeCode.trim()) {
+        return causeCode.trim().toUpperCase();
+      }
+    }
+  }
+
+  return null;
+};
+
+const collectErrorCodes = (error: unknown, formattedMessage: string) => {
+  const codes = new Set<string>();
+  const directCode = extractErrorCode(error);
+
+  if (directCode) {
+    codes.add(directCode);
+  }
+
+  const matches = formattedMessage.toUpperCase().match(/\bE[A-Z0-9_]{2,}\b/g) ?? [];
+  matches.forEach((code) => codes.add(code));
+
+  return codes;
+};
+
+const buildFriendlyConnectionErrorMessage = (targetUrl: URL, errorCodes: Set<string>) => {
+  const isLocalTarget = isLoopbackHostname(targetUrl.hostname);
+  const hostLabel = `${targetUrl.hostname}${targetUrl.port ? `:${targetUrl.port}` : ""}`;
+
+  if (errorCodes.has("ENOTFOUND") || errorCodes.has("EAI_AGAIN")) {
+    if (isLocalTarget || normalizeHostname(targetUrl.hostname).endsWith(".localhost")) {
+      return `Nao foi possivel encontrar o host local (${hostLabel}). Verifique se o backend/Docker esta ativo e se a URL esta correta.`;
+    }
+
+    return `Nao foi possivel encontrar o host (${hostLabel}). Verifique a URL e sua conexao de rede.`;
+  }
+
+  if (errorCodes.has("ECONNREFUSED")) {
+    if (isLocalTarget) {
+      return `Nao foi possivel conectar na API local (${hostLabel}) porque a conexao foi recusada. Verifique se o servidor esta ligado e ouvindo na porta certa.`;
+    }
+
+    return `O servidor recusou a conexao em ${hostLabel}.`;
+  }
+
+  if (errorCodes.has("ETIMEDOUT") || errorCodes.has("ECONNABORTED")) {
+    return `A conexao com ${hostLabel} excedeu o tempo limite.`;
+  }
+
+  if (errorCodes.has("ECONNRESET")) {
+    return `A conexao com ${hostLabel} foi encerrada inesperadamente.`;
+  }
+
+  return `Falha ao conectar no endpoint (${hostLabel}). Verifique se o servidor esta disponivel e tente novamente.`;
+};
+
 const runFetch = async (url: string, input: RequestInput): Promise<UpstreamResult> => {
   const response = await fetch(url, {
     method: input.method,
@@ -426,6 +490,7 @@ export async function POST(request: NextRequest) {
     const startedAt = performance.now();
     const candidateUrls = buildCandidateUrls(parsedUrl.toString());
     const attempts: string[] = [];
+    const errorCodes = new Set<string>();
     let upstreamResult: UpstreamResult | null = null;
 
     for (const candidateUrl of candidateUrls) {
@@ -433,7 +498,9 @@ export async function POST(request: NextRequest) {
         upstreamResult = await runFetch(candidateUrl, requestInput);
         break;
       } catch (error) {
-        attempts.push(`${candidateUrl} -> ${formatNetworkError(error)}`);
+        const formattedError = formatNetworkError(error);
+        attempts.push(`${candidateUrl} -> ${formattedError}`);
+        collectErrorCodes(error, formattedError).forEach((code) => errorCodes.add(code));
 
         const candidateParsed = new URL(candidateUrl);
 
@@ -442,19 +509,24 @@ export async function POST(request: NextRequest) {
             upstreamResult = await runLocalAliasFallback(candidateUrl, requestInput);
             break;
           } catch (fallbackError) {
-            attempts.push(`${candidateUrl} (fallback loopback) -> ${formatNetworkError(fallbackError)}`);
+            const formattedFallbackError = formatNetworkError(fallbackError);
+            attempts.push(`${candidateUrl} (fallback loopback) -> ${formattedFallbackError}`);
+            collectErrorCodes(fallbackError, formattedFallbackError).forEach((code) =>
+              errorCodes.add(code),
+            );
           }
         }
       }
     }
 
     if (!upstreamResult) {
-      const details = attempts.length ? `\nTentativas:\n${attempts.map((item) => `- ${item}`).join("\n")}` : "";
+      const friendlyMessage = buildFriendlyConnectionErrorMessage(parsedUrl, errorCodes);
 
       return NextResponse.json(
         {
           ok: false,
-          error: `Falha ao conectar no endpoint.${details}`,
+          error: friendlyMessage,
+          details: attempts,
         },
         { status: 502 },
       );

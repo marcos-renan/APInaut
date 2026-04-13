@@ -85,9 +85,9 @@ button:not(:disabled):not(.cursor-col-resize):not(.cursor-row-resize):hover {
   }
 
   100% {
-    opacity: 0.28;
-    transform: translateX(12px) scale(0.88);
-    filter: blur(0.3px);
+    opacity: 0.8;
+    transform: translateX(6px) scale(1);
+    filter: blur(0);
   }
 }
 
@@ -103,6 +103,7 @@ button:not(:disabled):not(.cursor-col-resize):not(.cursor-row-resize):hover {
 
 .apinaut-group-drag-merge {
   animation: apinaut-group-merge 170ms ease-out forwards;
+  box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.35);
   pointer-events: none;
 }
 

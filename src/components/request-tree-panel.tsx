@@ -311,8 +311,8 @@ const FolderRow = ({
 
   const rowStyle: CSSProperties = {
     paddingLeft: `${depth * REQUEST_LIST_INDENT}px`,
-    transform: CSS.Transform.toString(transform),
-    opacity: isDragging ? 0.45 : 1,
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.82 : 1,
   };
 
   const isDropTarget = Boolean(activeDragId) && isOver && activeDragId !== node.id;
@@ -322,38 +322,9 @@ const FolderRow = ({
     <div
       ref={setCombinedRef}
       style={rowStyle}
-      onPointerDown={(event) => handleNodePointerDown(event, node.id)}
-      onContextMenu={(event) => handleNodeContextMenu(event, node.id)}
-      role="button"
-      tabIndex={0}
       data-tree-row="true"
       data-node-id={node.id}
-      className={`apinaut-tree-selectable ${isEditing ? "w-full" : "w-full cursor-pointer select-none"}`}
-      onClick={(event) => {
-        if (event.ctrlKey || event.metaKey) {
-          return;
-        }
-
-        if (!isEditing) {
-          toggleFolderExpanded(node.id);
-        }
-      }}
-      onDoubleClick={() => {
-        if (!isEditing) {
-          startEditingFolderName(node.id, node.name);
-        }
-      }}
-      onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
-        if (isEditing) {
-          return;
-        }
-
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          toggleFolderExpanded(node.id);
-        }
-      }}
-      {...dragInteractionProps}
+      className="apinaut-tree-selectable w-full"
     >
       <div
         className={`flex h-10 w-full items-center gap-2 rounded-lg border px-2 text-left text-sm transition ${
@@ -364,7 +335,36 @@ const FolderRow = ({
             : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
         } ${isGroupDragLeader ? "apinaut-group-drag-leader relative" : ""} ${
           isGroupDragMember ? "apinaut-group-drag-merge" : ""
-        }`}
+        } ${isEditing ? "" : "cursor-pointer select-none"}`}
+        onPointerDown={(event) => handleNodePointerDown(event, node.id)}
+        onContextMenu={(event) => handleNodeContextMenu(event, node.id)}
+        role="button"
+        tabIndex={0}
+        onClick={(event) => {
+          if (event.ctrlKey || event.metaKey) {
+            return;
+          }
+
+          if (!isEditing) {
+            toggleFolderExpanded(node.id);
+          }
+        }}
+        onDoubleClick={() => {
+          if (!isEditing) {
+            startEditingFolderName(node.id, node.name);
+          }
+        }}
+        onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
+          if (isEditing) {
+            return;
+          }
+
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggleFolderExpanded(node.id);
+          }
+        }}
+        {...dragInteractionProps}
       >
         {isGroupDragLeader && groupedDragCount > 1 && (
           <span className="pointer-events-none absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-violet-300/70 bg-violet-500/90 px-1 text-[10px] font-bold text-white shadow">
@@ -442,8 +442,8 @@ const RequestRow = ({
   const request = node.request;
   const rowStyle: CSSProperties = {
     paddingLeft: `${depth * REQUEST_LIST_INDENT}px`,
-    transform: CSS.Transform.toString(transform),
-    opacity: isDragging ? 0.45 : 1,
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.82 : 1,
   };
   const dragInteractionProps = isEditing ? {} : { ...attributes, ...listeners };
 
@@ -674,9 +674,19 @@ export const RequestTreePanel = ({
       area.querySelectorAll<HTMLElement>(".apinaut-tree-selectable"),
     );
 
+    const selector = document.createElement("div");
+    selector.style.position = "absolute";
+    selector.style.pointerEvents = "none";
+    selector.style.border = "1px solid rgba(196, 181, 253, 0.85)";
+    selector.style.background = "rgba(139, 92, 246, 0.14)";
+    selector.style.borderRadius = "6px";
+    selector.style.zIndex = "80";
+    selector.style.visibility = "hidden";
+
     const dragSelect = new DragSelect<HTMLElement>({
       area,
       selectables,
+      selector,
       draggability: false,
       immediateDrag: false,
       multiSelectMode: false,
@@ -684,24 +694,31 @@ export const RequestTreePanel = ({
       multiSelectKeys: ["Shift"],
       usePointerEvents: true,
       selectionThreshold: 0,
+      customStyles: true,
     });
 
-    const handleStart = (payload: { event?: Event }) => {
+    const handleStartPre = (payload: { event?: Event }) => {
       const event = payload.event;
 
       if (!event) {
+        selector.style.visibility = "hidden";
         dragSelect.break();
         return;
       }
 
       if (!("shiftKey" in event) || !event.shiftKey) {
+        selector.style.visibility = "hidden";
         dragSelect.break();
         return;
       }
 
       if (!canStartShiftSelection(event.target)) {
+        selector.style.visibility = "hidden";
         dragSelect.break();
+        return;
       }
+
+      selector.style.visibility = "visible";
     };
 
     const syncSelectedNodeIds = () => {
@@ -715,15 +732,20 @@ export const RequestTreePanel = ({
       );
     };
 
-    const startSubscriptionId = dragSelect.subscribe("DS:start", handleStart);
-    const endSubscriptionId = dragSelect.subscribe("DS:end", syncSelectedNodeIds);
+    const startSubscriptionId = dragSelect.subscribe("DS:start:pre", handleStartPre);
+    const endSubscriptionId = dragSelect.subscribe("DS:end", () => {
+      selector.style.visibility = "hidden";
+      syncSelectedNodeIds();
+    });
 
     dragSelectRef.current = dragSelect;
 
     return () => {
-      dragSelect.unsubscribe("DS:start", undefined, startSubscriptionId);
+      dragSelect.unsubscribe("DS:start:pre", undefined, startSubscriptionId);
       dragSelect.unsubscribe("DS:end", undefined, endSubscriptionId);
+      selector.style.visibility = "hidden";
       dragSelect.stop();
+      selector.remove();
       dragSelectRef.current = null;
     };
   }, []);

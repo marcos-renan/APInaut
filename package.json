@@ -13,6 +13,8 @@
     "dev": "node scripts/dev.mjs",
     "dev:web": "next dev",
     "dev:electron": "electron electron/main.mjs",
+    "ensure:native": "node scripts/ensure-lightningcss-native.mjs",
+    "prebuild:web": "npm run ensure:native",
     "build:web": "next build",
     "build:runtime": "node scripts/prepare-desktop-app.mjs",
     "build": "npm run build:web && npm run build:runtime",
