@@ -16,13 +16,13 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronRight, Folder, FolderOpen, FolderPlus, Plus } from "lucide-react";
+import Selecto from "react-selecto";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -85,11 +85,13 @@ type FolderRowProps = {
   node: Extract<RequestTreeNode, { type: "folder" }>;
   depth: number;
   isSelected: boolean;
+  isGroupDragLeader: boolean;
+  isGroupDragMember: boolean;
+  groupedDragCount: number;
   isExpanded: boolean;
   isEditing: boolean;
   editingFolderName: string;
   setEditingFolderName: (value: string) => void;
-  registerRowElement: (nodeId: string, element: HTMLDivElement | null) => void;
   handleNodePointerDown: (event: ReactPointerEvent<HTMLDivElement>, nodeId: string) => void;
   handleNodeContextMenu: (event: ReactMouseEvent<HTMLDivElement>, nodeId: string) => void;
   toggleFolderExpanded: (folderId: string) => void;
@@ -103,11 +105,13 @@ type RequestRowProps = {
   node: Extract<RequestTreeNode, { type: "request" }>;
   depth: number;
   isSelected: boolean;
+  isGroupDragLeader: boolean;
+  isGroupDragMember: boolean;
+  groupedDragCount: number;
   isEditing: boolean;
   activeRequestId: string | null;
   editingRequestName: string;
   setEditingRequestName: (value: string) => void;
-  registerRowElement: (nodeId: string, element: HTMLDivElement | null) => void;
   handleNodePointerDown: (event: ReactPointerEvent<HTMLDivElement>, nodeId: string) => void;
   handleNodeContextMenu: (event: ReactMouseEvent<HTMLDivElement>, nodeId: string) => void;
   selectRequest: (requestId: string) => void;
@@ -123,17 +127,20 @@ type PositionDropZoneProps = {
   activeDragId: string | null;
 };
 
-type MarqueeSelection = {
-  startX: number;
-  startY: number;
-  currentX: number;
-  currentY: number;
-};
-
 const REQUEST_LIST_INDENT = 16;
 const ROOT_PARENT_TOKEN = "__root__";
 const POSITION_PREFIX = "position:";
 const FOLDER_PREFIX = "folder:";
+
+class ShiftAwarePointerSensor extends PointerSensor {
+  static activators = [
+    {
+      eventName: "onPointerDown" as const,
+      handler: ({ nativeEvent }: ReactPointerEvent<Element>) =>
+        nativeEvent.isPrimary && nativeEvent.button === 0 && !nativeEvent.shiftKey,
+    },
+  ];
+}
 
 const flattenNodeIdsInRenderOrder = (nodes: RequestTreeNode[]): string[] => {
   const ids: string[] = [];
@@ -179,20 +186,6 @@ const getTopLevelSelectionForMove = (
     return true;
   });
 };
-
-const createSelectionRect = (selection: MarqueeSelection) => {
-  const left = Math.min(selection.startX, selection.currentX);
-  const right = Math.max(selection.startX, selection.currentX);
-  const top = Math.min(selection.startY, selection.currentY);
-  const bottom = Math.max(selection.startY, selection.currentY);
-
-  return { left, right, top, bottom };
-};
-
-const rectsIntersect = (
-  a: { left: number; right: number; top: number; bottom: number },
-  b: DOMRect,
-) => a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
 
 const createPositionDropId = (parentFolderId: string | null, index: number): string => {
   const parentToken = encodeURIComponent(parentFolderId ?? ROOT_PARENT_TOKEN);
@@ -274,11 +267,13 @@ const FolderRow = ({
   node,
   depth,
   isSelected,
+  isGroupDragLeader,
+  isGroupDragMember,
+  groupedDragCount,
   isExpanded,
   isEditing,
   editingFolderName,
   setEditingFolderName,
-  registerRowElement,
   handleNodePointerDown,
   handleNodeContextMenu,
   toggleFolderExpanded,
@@ -301,7 +296,6 @@ const FolderRow = ({
   });
 
   const setCombinedRef = (element: HTMLDivElement | null) => {
-    registerRowElement(node.id, element);
     setDraggableNodeRef(element);
     setDroppableNodeRef(element);
   };
@@ -324,8 +318,10 @@ const FolderRow = ({
       role="button"
       tabIndex={0}
       data-tree-row="true"
+      data-node-id={node.id}
+      className={`apinaut-tree-selectable ${isEditing ? "w-full" : "w-full cursor-pointer select-none"}`}
       onClick={(event) => {
-        if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        if (event.ctrlKey || event.metaKey) {
           return;
         }
 
@@ -348,7 +344,6 @@ const FolderRow = ({
           toggleFolderExpanded(node.id);
         }
       }}
-      className={isEditing ? "w-full" : "w-full cursor-pointer select-none"}
       {...dragInteractionProps}
     >
       <div
@@ -358,8 +353,15 @@ const FolderRow = ({
             : isSelected
               ? "border-violet-300/70 bg-violet-500/18"
             : "border-white/10 bg-[#121025] hover:bg-[#1f1b33]"
+        } ${isGroupDragLeader ? "apinaut-group-drag-leader relative" : ""} ${
+          isGroupDragMember ? "apinaut-group-drag-merge" : ""
         }`}
       >
+        {isGroupDragLeader && groupedDragCount > 1 && (
+          <span className="pointer-events-none absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-violet-300/70 bg-violet-500/90 px-1 text-[10px] font-bold text-white shadow">
+            +{groupedDragCount - 1}
+          </span>
+        )}
         <ChevronRight
           className={`h-4 w-4 shrink-0 text-zinc-300 transition ${
             isExpanded ? "rotate-90" : ""
@@ -403,11 +405,13 @@ const RequestRow = ({
   node,
   depth,
   isSelected,
+  isGroupDragLeader,
+  isGroupDragMember,
+  groupedDragCount,
   isEditing,
   activeRequestId,
   editingRequestName,
   setEditingRequestName,
-  registerRowElement,
   handleNodePointerDown,
   handleNodeContextMenu,
   selectRequest,
@@ -436,12 +440,11 @@ const RequestRow = ({
 
   return (
     <div
-      ref={(element) => {
-        registerRowElement(node.id, element);
-        setNodeRef(element);
-      }}
+      ref={setNodeRef}
       style={rowStyle}
       data-tree-row="true"
+      data-node-id={node.id}
+      className="apinaut-tree-selectable"
     >
       <div
         onPointerDown={(event) => handleNodePointerDown(event, node.id)}
@@ -449,7 +452,7 @@ const RequestRow = ({
         role="button"
         tabIndex={0}
         onClick={(event) => {
-          if (event.ctrlKey || event.metaKey || event.shiftKey) {
+          if (event.ctrlKey || event.metaKey) {
             return;
           }
 
@@ -478,9 +481,16 @@ const RequestRow = ({
             : methodStyleMap[request.method].listInactive
         } ${isSelected ? "ring-1 ring-violet-300/80" : ""} ${
           isEditing ? "" : "cursor-pointer select-none"
+        } ${isGroupDragLeader ? "apinaut-group-drag-leader relative" : ""} ${
+          isGroupDragMember ? "apinaut-group-drag-merge" : ""
         }`}
         {...dragInteractionProps}
       >
+        {isGroupDragLeader && groupedDragCount > 1 && (
+          <span className="pointer-events-none absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-violet-300/70 bg-violet-500/90 px-1 text-[10px] font-bold text-white shadow">
+            +{groupedDragCount - 1}
+          </span>
+        )}
         <div className="flex min-w-0 items-center gap-2">
           <span
             className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
@@ -549,11 +559,10 @@ export const RequestTreePanel = ({
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [draggedNodeIds, setDraggedNodeIds] = useState<string[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
-  const [marqueeSelection, setMarqueeSelection] = useState<MarqueeSelection | null>(null);
-  const rowElementsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const treeSurfaceRef = useRef<HTMLDivElement | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(ShiftAwarePointerSensor, {
       activationConstraint: {
         distance: 4,
       },
@@ -566,6 +575,7 @@ export const RequestTreePanel = ({
   );
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
+  const draggedNodeIdSet = useMemo(() => new Set(draggedNodeIds), [draggedNodeIds]);
 
   const collisionDetection = useMemo<CollisionDetection>(
     () => (args) => {
@@ -589,15 +599,6 @@ export const RequestTreePanel = ({
     setSelectedNodeIds((current) => current.filter((nodeId) => existingNodeIds.has(nodeId)));
     setDraggedNodeIds((current) => current.filter((nodeId) => existingNodeIds.has(nodeId)));
   }, [orderedNodeIds]);
-
-  const registerRowElement = useCallback((nodeId: string, element: HTMLDivElement | null) => {
-    if (element) {
-      rowElementsRef.current.set(nodeId, element);
-      return;
-    }
-
-    rowElementsRef.current.delete(nodeId);
-  }, []);
 
   const handleNodePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
@@ -636,91 +637,29 @@ export const RequestTreePanel = ({
     openRequestContextMenu(event, nodeId);
   };
 
-  const updateSelectionFromMarquee = useCallback(
-    (selection: MarqueeSelection) => {
-      const selectionRect = createSelectionRect(selection);
-
-      const nextSelection = orderedNodeIds.filter((nodeId) => {
-        const rowElement = rowElementsRef.current.get(nodeId);
-        if (!rowElement) {
-          return false;
-        }
-
-        return rectsIntersect(selectionRect, rowElement.getBoundingClientRect());
-      });
-
-      setSelectedNodeIds(nextSelection);
-    },
-    [orderedNodeIds],
-  );
-
-  const handleSurfacePointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) {
-      return;
+  const canStartBackgroundSelection = (
+    target: EventTarget | null,
+    isShiftPressed: boolean,
+  ) => {
+    if (!isShiftPressed) {
+      return false;
     }
 
-    const target = event.target as HTMLElement;
-    const isTreeRowTarget = Boolean(target.closest("[data-tree-row='true']"));
-    const isInteractiveTarget = Boolean(
-      target.closest("button,input,textarea,select,[role='button']"),
-    );
-
-    if ((isTreeRowTarget || isInteractiveTarget) && !event.shiftKey) {
-      return;
+    if (!(target instanceof HTMLElement)) {
+      return false;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-
-    const initialSelection: MarqueeSelection = {
-      startX: event.clientX,
-      startY: event.clientY,
-      currentX: event.clientX,
-      currentY: event.clientY,
-    };
-
-    setSelectedNodeIds([]);
-    setMarqueeSelection(initialSelection);
+    return !target.closest("button,input,textarea,select,[role='button']");
   };
 
-  const handleSurfacePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!marqueeSelection) {
-      return;
-    }
+  const handleSelectoSelection = (event: { selected: Element[] }) => {
+    const nextSelection = event.selected
+      .map((element) =>
+        element instanceof HTMLElement ? element.dataset.nodeId ?? null : null,
+      )
+      .filter((nodeId): nodeId is string => Boolean(nodeId));
 
-    const nextSelection: MarqueeSelection = {
-      ...marqueeSelection,
-      currentX: event.clientX,
-      currentY: event.clientY,
-    };
-
-    setMarqueeSelection(nextSelection);
-    updateSelectionFromMarquee(nextSelection);
-  };
-
-  const handleSurfacePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!marqueeSelection) {
-      return;
-    }
-
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    setMarqueeSelection(null);
-  };
-
-  const handleSurfacePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!marqueeSelection) {
-      return;
-    }
-
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    setMarqueeSelection(null);
+    setSelectedNodeIds(nextSelection);
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -787,21 +726,6 @@ export const RequestTreePanel = ({
     });
   };
 
-  const marqueeStyle = useMemo(() => {
-    if (!marqueeSelection) {
-      return null;
-    }
-
-    const rect = createSelectionRect(marqueeSelection);
-
-    return {
-      left: rect.left,
-      top: rect.top,
-      width: Math.max(1, rect.right - rect.left),
-      height: Math.max(1, rect.bottom - rect.top),
-    } satisfies CSSProperties;
-  }, [marqueeSelection]);
-
   const renderRequestTreeNodes = (
     nodes: RequestTreeNode[],
     parentFolderId: string | null = null,
@@ -829,11 +753,17 @@ export const RequestTreePanel = ({
               node={node}
               depth={depth}
               isSelected={selectedNodeIdSet.has(node.id)}
+              isGroupDragLeader={activeDragId === node.id && draggedNodeIds.length > 1}
+              isGroupDragMember={
+                Boolean(activeDragId) &&
+                draggedNodeIdSet.has(node.id) &&
+                node.id !== activeDragId
+              }
+              groupedDragCount={draggedNodeIds.length}
               isExpanded={isExpanded}
               isEditing={isEditing}
               editingFolderName={editingFolderName}
               setEditingFolderName={setEditingFolderName}
-              registerRowElement={registerRowElement}
               handleNodePointerDown={handleNodePointerDown}
               handleNodeContextMenu={handleNodeContextMenu}
               toggleFolderExpanded={toggleFolderExpanded}
@@ -862,11 +792,17 @@ export const RequestTreePanel = ({
           node={node}
           depth={depth}
           isSelected={selectedNodeIdSet.has(node.id)}
+          isGroupDragLeader={activeDragId === node.id && draggedNodeIds.length > 1}
+          isGroupDragMember={
+            Boolean(activeDragId) &&
+            draggedNodeIdSet.has(node.id) &&
+            node.id !== activeDragId
+          }
+          groupedDragCount={draggedNodeIds.length}
           isEditing={isEditing}
           activeRequestId={activeRequestId}
           editingRequestName={editingRequestName}
           setEditingRequestName={setEditingRequestName}
-          registerRowElement={registerRowElement}
           handleNodePointerDown={handleNodePointerDown}
           handleNodeContextMenu={handleNodeContextMenu}
           selectRequest={selectRequest}
@@ -924,11 +860,8 @@ export const RequestTreePanel = ({
         onDragCancel={handleDragCancel}
       >
         <div
-          className="relative space-y-2 rounded-lg"
-          onPointerDownCapture={handleSurfacePointerDownCapture}
-          onPointerMove={handleSurfacePointerMove}
-          onPointerUp={handleSurfacePointerUp}
-          onPointerCancel={handleSurfacePointerCancel}
+          ref={treeSurfaceRef}
+          className="relative mx-2 space-y-2 rounded-lg"
         >
           {requestTree.length === 0 && (
             <p className="rounded-lg border border-dashed border-white/15 p-3 text-xs text-zinc-400">
@@ -938,14 +871,25 @@ export const RequestTreePanel = ({
 
           {renderRequestTreeNodes(requestTree, null, 0)}
         </div>
-      </DndContext>
 
-      {marqueeStyle && (
-        <div
-          className="pointer-events-none fixed z-[70] rounded border border-violet-300/80 bg-violet-500/20"
-          style={marqueeStyle}
+        <Selecto
+          container={treeSurfaceRef.current ?? undefined}
+          dragContainer={treeSurfaceRef.current ?? undefined}
+          selectableTargets={[".apinaut-tree-selectable"]}
+          selectByClick={false}
+          selectFromInside={true}
+          continueSelect={false}
+          hitRate={0}
+          ratio={0}
+          dragCondition={(event) =>
+            canStartBackgroundSelection(
+              event.inputEvent?.target ?? null,
+              Boolean(event.inputEvent?.shiftKey),
+            )
+          }
+          onSelect={handleSelectoSelection}
         />
-      )}
+      </DndContext>
     </aside>
   );
 };

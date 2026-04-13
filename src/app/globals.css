@@ -76,3 +76,36 @@ button:not(:disabled):not(.cursor-col-resize):not(.cursor-row-resize):hover {
 *::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
+
+@keyframes apinaut-group-merge {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 0.28;
+    transform: translateX(12px) scale(0.88);
+    filter: blur(0.3px);
+  }
+}
+
+@keyframes apinaut-group-leader-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.55);
+  }
+
+  100% {
+    box-shadow: 0 0 0 8px rgba(167, 139, 250, 0);
+  }
+}
+
+.apinaut-group-drag-merge {
+  animation: apinaut-group-merge 170ms ease-out forwards;
+  pointer-events: none;
+}
+
+.apinaut-group-drag-leader {
+  animation: apinaut-group-leader-pulse 260ms ease-out 1;
+}
