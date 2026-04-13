@@ -15,8 +15,8 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import DragSelect from "dragselect";
 import { ChevronRight, Folder, FolderOpen, FolderPlus, Plus } from "lucide-react";
-import Selecto from "react-selecto";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -193,6 +193,15 @@ const createPositionDropId = (parentFolderId: string | null, index: number): str
 };
 
 const createFolderDropId = (folderId: string): string => `${FOLDER_PREFIX}${encodeURIComponent(folderId)}`;
+
+const haveSameNodeSelection = (left: string[], right: string[]) => {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const rightSet = new Set(right);
+  return left.every((nodeId) => rightSet.has(nodeId));
+};
 
 const parseDropTargetId = (dropId: string): DropTarget | null => {
   if (dropId.startsWith(FOLDER_PREFIX)) {
@@ -560,6 +569,8 @@ export const RequestTreePanel = ({
   const [draggedNodeIds, setDraggedNodeIds] = useState<string[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const treeSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const dragSelectRef = useRef<DragSelect<HTMLElement> | null>(null);
+  const isSyncingDragSelectRef = useRef(false);
 
   const sensors = useSensors(
     useSensor(ShiftAwarePointerSensor, {
@@ -637,30 +648,118 @@ export const RequestTreePanel = ({
     openRequestContextMenu(event, nodeId);
   };
 
-  const canStartBackgroundSelection = (
-    target: EventTarget | null,
-    isShiftPressed: boolean,
-  ) => {
-    if (!isShiftPressed) {
-      return false;
-    }
-
+  const canStartShiftSelection = (target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) {
       return false;
     }
 
-    return !target.closest("button,input,textarea,select,[role='button']");
+    return !target.closest("button,input,textarea,select,[contenteditable='true']");
   };
 
-  const handleSelectoSelection = (event: { selected: Element[] }) => {
-    const nextSelection = event.selected
+  const mapElementsToNodeIds = (elements: HTMLElement[]) =>
+    elements
       .map((element) =>
         element instanceof HTMLElement ? element.dataset.nodeId ?? null : null,
       )
       .filter((nodeId): nodeId is string => Boolean(nodeId));
 
-    setSelectedNodeIds(nextSelection);
-  };
+  useEffect(() => {
+    const area = treeSurfaceRef.current;
+
+    if (!area) {
+      return;
+    }
+
+    const selectables = Array.from(
+      area.querySelectorAll<HTMLElement>(".apinaut-tree-selectable"),
+    );
+
+    const dragSelect = new DragSelect<HTMLElement>({
+      area,
+      selectables,
+      draggability: false,
+      immediateDrag: false,
+      multiSelectMode: false,
+      multiSelectToggling: false,
+      multiSelectKeys: ["Shift"],
+      usePointerEvents: true,
+      selectionThreshold: 0,
+    });
+
+    const handleStart = (payload: { event?: Event }) => {
+      const event = payload.event;
+
+      if (!event) {
+        dragSelect.break();
+        return;
+      }
+
+      if (!("shiftKey" in event) || !event.shiftKey) {
+        dragSelect.break();
+        return;
+      }
+
+      if (!canStartShiftSelection(event.target)) {
+        dragSelect.break();
+      }
+    };
+
+    const syncSelectedNodeIds = () => {
+      if (isSyncingDragSelectRef.current) {
+        return;
+      }
+
+      const nextSelection = mapElementsToNodeIds(dragSelect.getSelection());
+      setSelectedNodeIds((currentSelection) =>
+        haveSameNodeSelection(currentSelection, nextSelection) ? currentSelection : nextSelection,
+      );
+    };
+
+    const startSubscriptionId = dragSelect.subscribe("DS:start", handleStart);
+    const endSubscriptionId = dragSelect.subscribe("DS:end", syncSelectedNodeIds);
+
+    dragSelectRef.current = dragSelect;
+
+    return () => {
+      dragSelect.unsubscribe("DS:start", undefined, startSubscriptionId);
+      dragSelect.unsubscribe("DS:end", undefined, endSubscriptionId);
+      dragSelect.stop();
+      dragSelectRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const area = treeSurfaceRef.current;
+    const dragSelect = dragSelectRef.current;
+
+    if (!area || !dragSelect) {
+      return;
+    }
+
+    const selectables = Array.from(
+      area.querySelectorAll<HTMLElement>(".apinaut-tree-selectable"),
+    );
+    dragSelect.setSettings({ selectables });
+
+    const selectedNodeSet = new Set(selectedNodeIds);
+    const selectedElements = selectables.filter((element) => {
+      const nodeId = element.dataset.nodeId;
+      return Boolean(nodeId && selectedNodeSet.has(nodeId));
+    });
+
+    const currentSelection = mapElementsToNodeIds(dragSelect.getSelection());
+    const nextSelection = selectedElements
+      .map((element) => element.dataset.nodeId ?? null)
+      .filter((nodeId): nodeId is string => Boolean(nodeId));
+
+    if (haveSameNodeSelection(currentSelection, nextSelection)) {
+      return;
+    }
+
+    isSyncingDragSelectRef.current = true;
+    dragSelect.setSelection(selectedElements, false, true);
+    isSyncingDragSelectRef.current = false;
+  }, [orderedNodeIds, selectedNodeIds]);
 
   const handleDragStart = (event: DragStartEvent) => {
     const activeNodeId = String(event.active.id);
@@ -871,24 +970,6 @@ export const RequestTreePanel = ({
 
           {renderRequestTreeNodes(requestTree, null, 0)}
         </div>
-
-        <Selecto
-          container={treeSurfaceRef.current ?? undefined}
-          dragContainer={treeSurfaceRef.current ?? undefined}
-          selectableTargets={[".apinaut-tree-selectable"]}
-          selectByClick={false}
-          selectFromInside={true}
-          continueSelect={false}
-          hitRate={0}
-          ratio={0}
-          dragCondition={(event) =>
-            canStartBackgroundSelection(
-              event.inputEvent?.target ?? null,
-              Boolean(event.inputEvent?.shiftKey),
-            )
-          }
-          onSelect={handleSelectoSelection}
-        />
       </DndContext>
     </aside>
   );
