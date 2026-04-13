@@ -217,7 +217,7 @@ const run = async () => {
       nodeGypRebuild: false,
       buildDependenciesFromSource: false,
       compression: "maximum",
-      electronLanguages: ["pt-BR", "en-US"],
+      electronLanguages: ["pt-BR", "en-US", "es-ES"],
       directories: {
         buildResources: "build",
         output: "../release",
@@ -239,6 +239,8 @@ const run = async () => {
       nsis: {
         oneClick: false,
         allowToChangeInstallationDirectory: true,
+        displayLanguageSelector: true,
+        installerLanguages: ["pt_BR", "en_US", "es_ES"],
         runAfterFinish: true,
         createDesktopShortcut: true,
         shortcutName: "APInaut",

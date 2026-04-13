@@ -62,6 +62,12 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "displayLanguageSelector": true,
+      "installerLanguages": [
+        "pt_BR",
+        "en_US",
+        "es_ES"
+      ],
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "shortcutName": "APInaut",
