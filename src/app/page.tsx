@@ -12,6 +12,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { dump, load } from "js-yaml";
+import { useI18n } from "@/components/language-provider";
 import {
   Collection,
   RequestTreeNode,
@@ -56,6 +57,7 @@ const countFoldersInTree = (nodes: RequestTreeNode[]): number => {
 };
 
 export default function Home() {
+  const { t, formatDate } = useI18n();
   const router = useRouter();
   const collections = useSyncExternalStore(
     subscribeCollections,
@@ -123,10 +125,17 @@ export default function Home() {
       }
 
       const scopeLabel =
-        targetCollections.length === 1 ? ` da coleção "${targetCollections[0].name}"` : " das coleções";
-      showFeedback("success", `Exportação em ${format.toUpperCase()}${scopeLabel} concluída.`);
+        targetCollections.length === 1
+          ? t("home.feedback.exportSuccessSingle", {
+              format: format.toUpperCase(),
+              name: targetCollections[0].name,
+            })
+          : t("home.feedback.exportSuccessAll", {
+              format: format.toUpperCase(),
+            });
+      showFeedback("success", scopeLabel);
     } catch {
-      showFeedback("error", "Não foi possível exportar as coleções.");
+      showFeedback("error", t("home.feedback.exportError"));
     }
   };
 
@@ -244,7 +253,7 @@ export default function Home() {
     });
 
     if (supportedFiles.length === 0) {
-      throw new Error("Selecione arquivos .json, .yaml ou .yml para importar.");
+      throw new Error(t("home.feedback.importUnsupported"));
     }
 
     const importedCollections: Collection[] = [];
@@ -267,17 +276,17 @@ export default function Home() {
     }
 
     if (importedCollections.length === 0) {
-      throw new Error("Nenhuma coleção válida encontrada nos arquivos selecionados.");
+      throw new Error(t("home.feedback.importNone"));
     }
 
     const uniqueImported = ensureUniqueCollectionIds(importedCollections, collections);
     saveCollections([...uniqueImported, ...collections]);
 
     const ignoredMessage =
-      ignoredFilesCount > 0 ? ` ${ignoredFilesCount} arquivo(s) incompatível(is) foram ignorados.` : "";
+      ignoredFilesCount > 0 ? t("home.feedback.importIgnored", { count: ignoredFilesCount }) : "";
     showFeedback(
       "success",
-      `${uniqueImported.length} coleção(ões) importada(s) com sucesso.${ignoredMessage}`,
+      `${t("home.feedback.importSuccess", { count: uniqueImported.length })}${ignoredMessage}`,
     );
     closeImportModal();
   };
@@ -292,7 +301,7 @@ export default function Home() {
     try {
       await importCollectionsFromFiles(files);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Falha ao importar arquivo.";
+      const message = error instanceof Error ? error.message : t("home.feedback.importFailed");
       showFeedback("error", message);
     } finally {
       event.target.value = "";
@@ -353,7 +362,7 @@ export default function Home() {
     }
 
     saveCollections(collections.filter((collection) => collection.id !== deleteCollectionTarget.id));
-    showFeedback("success", `Coleção "${deleteCollectionTarget.name}" deletada com sucesso.`);
+    showFeedback("success", t("home.feedback.deleteSuccess", { name: deleteCollectionTarget.name }));
     closeDeleteCollectionModal();
   };
 
@@ -361,7 +370,7 @@ export default function Home() {
     <main className="relative h-full overflow-auto bg-[#100e1a] px-6 py-8">
       <div className="mx-auto w-full max-w-4xl">
         <div className="mb-6 flex items-center justify-between gap-4">
-          <h1 className="text-xl font-semibold text-white">Coleções</h1>
+          <h1 className="text-xl font-semibold text-white">{t("home.title")}</h1>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <input
               ref={importFileInputRef}
@@ -376,14 +385,14 @@ export default function Home() {
               onClick={() => setIsImportModalOpen(true)}
               className="rounded-xl border border-white/15 bg-[#1a1728] px-4 py-3 text-sm font-semibold text-zinc-100 transition hover:bg-[#221f33]"
             >
-              Importar
+              {t("home.import")}
             </button>
             <button
               type="button"
               onClick={() => setIsModalOpen(true)}
               className="rounded-xl bg-violet-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-400"
             >
-              Criar coleção
+              {t("home.createCollection")}
             </button>
           </div>
         </div>
@@ -403,7 +412,7 @@ export default function Home() {
         <section className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
           {collections.length === 0 && (
             <div className="col-span-full rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-sm text-zinc-300">
-              Nenhuma coleção criada ainda.
+              {t("home.none")}
             </div>
           )}
 
@@ -432,8 +441,8 @@ export default function Home() {
                     type="button"
                     onClick={(event) => openCollectionMenu(event, collection.id)}
                     className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-[#121025] text-sm text-zinc-300 transition hover:border-violet-300/45 hover:text-violet-100"
-                    aria-label={`Opções da coleção ${collection.name}`}
-                    title="Opções"
+                    aria-label={`${t("home.options")} ${collection.name}`}
+                    title={t("home.options")}
                   >
                     ⋯
                   </button>
@@ -441,19 +450,19 @@ export default function Home() {
 
                 <div className="mt-3 space-y-1 text-sm">
                   <p className="font-medium text-cyan-200">
-                    Criada em {new Date(collection.createdAt).toLocaleDateString("pt-BR")}
+                    {t("home.createdOn", { date: formatDate(collection.createdAt) })}
                   </p>
                   <p className="font-medium text-violet-200">
-                    {environmentCount} ambiente(s)
+                    {t("home.environments", { count: environmentCount })}
                   </p>
                   <p className="font-medium text-amber-200">
-                    {folderCount} pasta(s)
+                    {t("home.folders", { count: folderCount })}
                   </p>
                   <p className="font-medium text-emerald-200">
-                    {requestCount} request(s)
+                    {t("home.requests", { count: requestCount })}
                   </p>
                 </div>
-                <div className="mt-auto pt-3 text-xs font-medium text-violet-200/80">Clique para abrir</div>
+                <div className="mt-auto pt-3 text-xs font-medium text-violet-200/80">{t("home.clickToOpen")}</div>
               </article>
             );
           })}
@@ -477,7 +486,7 @@ export default function Home() {
             }}
             className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
           >
-            Exportar JSON
+            {t("home.exportJson")}
           </button>
           <button
             type="button"
@@ -487,14 +496,14 @@ export default function Home() {
             }}
             className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
           >
-            Exportar YAML
+            {t("home.exportYaml")}
           </button>
           <button
             type="button"
             onClick={() => handleDeleteCollection(selectedMenuCollection.id)}
             className="w-full rounded-md px-3 py-2 text-left text-sm text-rose-200 transition hover:bg-rose-500/20"
           >
-            Deletar coleção
+            {t("home.deleteCollection")}
           </button>
         </div>
       )}
@@ -505,9 +514,9 @@ export default function Home() {
             className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#1a1728] p-6"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold text-white">Importar Coleções</h2>
+            <h2 className="text-lg font-semibold text-white">{t("home.importModal.title")}</h2>
             <p className="mt-1 text-sm text-zinc-300">
-              Selecione arquivos manualmente. Formatos aceitos: JSON e YAML.
+              {t("home.importModal.description")}
             </p>
 
             <div
@@ -522,8 +531,8 @@ export default function Home() {
               }}
               className="mt-5 min-h-[240px] cursor-pointer rounded-xl border border-dashed border-white/20 bg-[#121025] p-10 text-center transition hover:border-violet-300/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
             >
-              <p className="text-base font-semibold text-zinc-100">Clique para escolher os arquivos</p>
-              <p className="mt-2 text-sm text-zinc-400">Você pode selecionar múltiplos arquivos de uma vez.</p>
+              <p className="text-base font-semibold text-zinc-100">{t("home.importModal.dropTitle")}</p>
+              <p className="mt-2 text-sm text-zinc-400">{t("home.importModal.dropDescription")}</p>
             </div>
 
             <div className="mt-6 flex items-center justify-end gap-2">
@@ -532,7 +541,7 @@ export default function Home() {
                 onClick={closeImportModal}
                 className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
               >
-                Fechar
+                {t("common.close")}
               </button>
             </div>
           </div>
@@ -545,14 +554,14 @@ export default function Home() {
             onSubmit={handleCreateCollection}
             className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1a1728] p-5"
           >
-            <h1 className="text-lg font-semibold text-white">Nova coleção</h1>
-            <p className="mt-1 text-sm text-zinc-300">Insira o nome da coleção.</p>
+            <h1 className="text-lg font-semibold text-white">{t("home.newCollection.title")}</h1>
+            <p className="mt-1 text-sm text-zinc-300">{t("home.newCollection.description")}</p>
 
             <input
               autoFocus
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Ex: API de pagamentos"
+              placeholder={t("home.newCollection.placeholder")}
               className="mt-4 h-11 w-full rounded-lg border border-white/15 bg-[#100e1a] px-3 text-sm text-white outline-none ring-violet-400 transition focus:ring-2"
               required
             />
@@ -566,13 +575,13 @@ export default function Home() {
                 }}
                 className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
               <button
                 type="submit"
                 className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-400"
               >
-                Criar
+                {t("common.create")}
               </button>
             </div>
           </form>
@@ -582,12 +591,11 @@ export default function Home() {
       {deleteCollectionTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1a1728] p-5">
-            <h2 className="text-lg font-semibold text-white">Deletar coleção</h2>
+            <h2 className="text-lg font-semibold text-white">{t("home.deleteModal.title")}</h2>
             <p className="mt-2 text-sm text-zinc-300">
-              Tem certeza que deseja deletar{" "}
-              <span className="font-semibold text-zinc-100">&quot;{deleteCollectionTarget.name}&quot;</span>?
+              {t("home.deleteModal.confirm", { name: deleteCollectionTarget.name })}
             </p>
-            <p className="mt-1 text-xs text-rose-200">Essa ação não pode ser desfeita.</p>
+            <p className="mt-1 text-xs text-rose-200">{t("home.deleteModal.warning")}</p>
 
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -595,14 +603,14 @@ export default function Home() {
                 onClick={closeDeleteCollectionModal}
                 className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
                 onClick={confirmDeleteCollection}
                 className="rounded-lg border border-rose-300/50 bg-rose-500/20 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/30"
               >
-                Deletar
+                {t("common.delete")}
               </button>
             </div>
           </div>

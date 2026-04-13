@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import type { KeyValueRow, MultipartFormRow } from "@/lib/collections";
+import { useI18n } from "@/components/language-provider";
 import { StyledSelect } from "@/components/styled-select";
 
 const DELETE_CONFIRM_TIMEOUT_MS = 1500;
@@ -38,6 +39,7 @@ export const KeyValueEditor = ({
   onTextFieldChange,
   onTextFieldKeyDown,
 }: KeyValueEditorProps) => {
+  const { t } = useI18n();
   const [pendingDeleteRowId, setPendingDeleteRowId] = useState<string | null>(null);
   const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -77,10 +79,10 @@ export const KeyValueEditor = ({
   return (
     <div className="space-y-3">
       <div className="hidden grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-        <span>Ativo</span>
-        <span>Chave</span>
-        <span>Valor</span>
-        <span>Acao</span>
+        <span>{t("common.active")}</span>
+        <span>{t("common.key")}</span>
+        <span>{t("common.value")}</span>
+        <span>{t("common.action")}</span>
       </div>
 
       {rows.map((row) => {
@@ -97,8 +99,8 @@ export const KeyValueEditor = ({
                   : "border-white/15 bg-[#121025] hover:bg-white/10"
               }`}
               aria-pressed={row.enabled}
-              aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
-              title={row.enabled ? "Desativar linha" : "Ativar linha"}
+              aria-label={row.enabled ? t("table.toggleOff") : t("table.toggleOn")}
+              title={row.enabled ? t("table.toggleOff") : t("table.toggleOn")}
             >
               <span
                 className={`relative h-5 w-9 rounded-full transition ${
@@ -146,7 +148,7 @@ export const KeyValueEditor = ({
                 onTextFieldKeyDown?.(event, row.value, (nextValue) => onChange(row.id, "value", nextValue));
               }}
               className="h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#121025] px-3 text-sm outline-none ring-violet-400 transition focus:ring-2"
-              placeholder="valor"
+              placeholder={t("common.value").toLowerCase()}
             />
             <button
               type="button"
@@ -156,8 +158,8 @@ export const KeyValueEditor = ({
                   ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
                   : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
               }`}
-              aria-label={isDeletePending ? "Clique novamente para remover linha" : "Remover linha"}
-              title={isDeletePending ? "Clique novamente para remover" : "Remover linha"}
+              aria-label={isDeletePending ? t("table.removeRowConfirm") : t("table.removeRow")}
+              title={isDeletePending ? t("table.removeRowConfirm") : t("table.removeRow")}
             >
               {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
             </button>
@@ -170,7 +172,7 @@ export const KeyValueEditor = ({
         onClick={onAdd}
         className="rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
       >
-        + Adicionar linha
+        {t("table.addRow")}
       </button>
     </div>
   );
@@ -202,6 +204,7 @@ export const MultipartFormEditor = ({
   onTextFieldChange,
   onTextFieldKeyDown,
 }: MultipartFormEditorProps) => {
+  const { t } = useI18n();
   const [pendingDeleteRowId, setPendingDeleteRowId] = useState<string | null>(null);
   const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -242,16 +245,16 @@ export const MultipartFormEditor = ({
   return (
     <div className="space-y-3">
       <div className="hidden grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-        <span>Ativo</span>
-        <span>Chave</span>
-        <span>Tipo</span>
-        <span>Valor</span>
-        <span>Acao</span>
+        <span>{t("common.active")}</span>
+        <span>{t("common.key")}</span>
+        <span>{t("common.type")}</span>
+        <span>{t("common.value")}</span>
+        <span>{t("common.action")}</span>
       </div>
 
       {rows.map((row) => {
         const isDeletePending = pendingDeleteRowId === row.id;
-        const fileLabel = row.fileName?.trim() || row.value.trim() || "Selecionar arquivo";
+        const fileLabel = row.fileName?.trim() || row.value.trim() || t("table.selectFile");
 
         return (
           <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px]">
@@ -264,8 +267,8 @@ export const MultipartFormEditor = ({
                   : "border-white/15 bg-[#121025] hover:bg-white/10"
               }`}
               aria-pressed={row.enabled}
-              aria-label={row.enabled ? "Desativar linha" : "Ativar linha"}
-              title={row.enabled ? "Desativar linha" : "Ativar linha"}
+              aria-label={row.enabled ? t("table.toggleOff") : t("table.toggleOn")}
+              title={row.enabled ? t("table.toggleOff") : t("table.toggleOn")}
             >
               <span
                 className={`relative h-5 w-9 rounded-full transition ${
@@ -316,8 +319,8 @@ export const MultipartFormEditor = ({
                 onChange(row.id, "valueType", "file");
               }}
               options={[
-                { value: "text", label: "Text" },
-                { value: "file", label: "File" },
+                { value: "text", label: t("common.text") },
+                { value: "file", label: t("common.file") },
               ]}
               containerClassName="w-full"
               triggerClassName="h-10 rounded-lg px-3 text-sm"
@@ -375,8 +378,8 @@ export const MultipartFormEditor = ({
                   ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
                   : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
               }`}
-              aria-label={isDeletePending ? "Clique novamente para remover linha" : "Remover linha"}
-              title={isDeletePending ? "Clique novamente para remover" : "Remover linha"}
+              aria-label={isDeletePending ? t("table.removeRowConfirm") : t("table.removeRow")}
+              title={isDeletePending ? t("table.removeRowConfirm") : t("table.removeRow")}
             >
               {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
             </button>
@@ -389,7 +392,7 @@ export const MultipartFormEditor = ({
         onClick={onAdd}
         className="rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
       >
-        + Adicionar campo
+        {t("table.addField")}
       </button>
     </div>
   );

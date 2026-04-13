@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
 const DEFAULT_WINDOW_ICON_PATH = path.join(__dirname, "..", "public", "apinaut.ico");
+const LINUX_WINDOW_ICON_PATH = path.join(__dirname, "..", "build", "icons", "icon.png");
 const LEGACY_WINDOW_ICON_PATH = path.join(__dirname, "..", "public", "apinaut-logo.png");
 const WINDOWS_WINDOW_ICON_PATH = path.join(__dirname, "..", "build", "icons", "icon.ico");
 const DEFAULT_START_URL = "http://localhost:3210";
@@ -114,6 +115,18 @@ const silenceRuntimeLogsIfNeeded = () => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const resolveWindowIconPath = () => {
+  if (process.platform === "linux") {
+    if (fs.existsSync(LINUX_WINDOW_ICON_PATH)) {
+      return LINUX_WINDOW_ICON_PATH;
+    }
+
+    if (fs.existsSync(LEGACY_WINDOW_ICON_PATH)) {
+      return LEGACY_WINDOW_ICON_PATH;
+    }
+
+    return undefined;
+  }
+
   if (process.platform === "win32" && fs.existsSync(WINDOWS_WINDOW_ICON_PATH)) {
     return WINDOWS_WINDOW_ICON_PATH;
   }
@@ -473,6 +486,9 @@ app.whenReady().then(async () => {
   silenceRuntimeLogsIfNeeded();
   app.setName("APInaut");
   app.setAppUserModelId("com.apinaut.desktop");
+  if (process.platform === "linux") {
+    app.setDesktopName("apinaut.desktop");
+  }
 
   ipcMain.on("window:minimize", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {

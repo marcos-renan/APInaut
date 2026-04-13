@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 
+import { useI18n } from "@/components/language-provider";
 import type { ApiRequest, RequestTreeNode } from "@/lib/collections";
 import { findNodeById, nodeContainsNodeId } from "@/lib/request-tree";
 
@@ -99,6 +100,7 @@ type FolderRowProps = {
   commitEditingFolderName: () => void;
   cancelEditingFolderName: () => void;
   activeDragId: string | null;
+  folderNamePlaceholder: string;
 };
 
 type RequestRowProps = {
@@ -119,6 +121,7 @@ type RequestRowProps = {
   commitEditingRequestName: () => void;
   cancelEditingRequestName: () => void;
   methodStyleMap: Record<ApiRequest["method"], RequestMethodStyle>;
+  requestNamePlaceholder: string;
 };
 
 type PositionDropZoneProps = {
@@ -290,6 +293,7 @@ const FolderRow = ({
   commitEditingFolderName,
   cancelEditingFolderName,
   activeDragId,
+  folderNamePlaceholder,
 }: FolderRowProps) => {
   const {
     attributes,
@@ -403,7 +407,7 @@ const FolderRow = ({
             }
           }}
           className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-          placeholder="Nome da pasta"
+          placeholder={folderNamePlaceholder}
         />
       )}
     </div>
@@ -428,6 +432,7 @@ const RequestRow = ({
   commitEditingRequestName,
   cancelEditingRequestName,
   methodStyleMap,
+  requestNamePlaceholder,
 }: RequestRowProps) => {
   const {
     attributes,
@@ -532,7 +537,7 @@ const RequestRow = ({
               }
             }}
             className="mt-1 h-8 w-full rounded-md border border-violet-300/40 bg-[#0f0c1d] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-            placeholder="Nome da requisicao"
+            placeholder={requestNamePlaceholder}
           />
         )}
       </div>
@@ -565,6 +570,7 @@ export const RequestTreePanel = ({
   cancelEditingRequestName,
   openRequestContextMenu,
 }: RequestTreePanelProps) => {
+  const { t } = useI18n();
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [draggedNodeIds, setDraggedNodeIds] = useState<string[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -892,6 +898,7 @@ export const RequestTreePanel = ({
               commitEditingFolderName={commitEditingFolderName}
               cancelEditingFolderName={cancelEditingFolderName}
               activeDragId={activeDragId}
+              folderNamePlaceholder={t("requestTree.folderNamePlaceholder")}
             />
 
             {isExpanded && (
@@ -931,6 +938,7 @@ export const RequestTreePanel = ({
           commitEditingRequestName={commitEditingRequestName}
           cancelEditingRequestName={cancelEditingRequestName}
           methodStyleMap={methodStyleMap}
+          requestNamePlaceholder={t("requestTree.requestNamePlaceholder")}
         />,
       );
     });
@@ -950,14 +958,14 @@ export const RequestTreePanel = ({
   return (
     <aside className="min-h-0 overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3">
       <div className="mb-3 flex items-center justify-between px-3">
-        <h2 className="text-sm font-medium text-zinc-300">Requisicoes</h2>
+        <h2 className="text-sm font-medium text-zinc-300">{t("requestTree.title")}</h2>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={createFolder}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
-            aria-label="Criar nova pasta"
-            title="Criar nova pasta"
+            aria-label={t("requestTree.createFolder")}
+            title={t("requestTree.createFolder")}
           >
             <FolderPlus className="h-4 w-4" />
           </button>
@@ -965,8 +973,8 @@ export const RequestTreePanel = ({
             type="button"
             onClick={createRequest}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/45 bg-violet-500/15 text-violet-100 transition hover:bg-violet-500/25"
-            aria-label="Criar nova requisicao"
-            title="Criar nova requisicao"
+            aria-label={t("requestTree.createRequest")}
+            title={t("requestTree.createRequest")}
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -986,7 +994,7 @@ export const RequestTreePanel = ({
         >
           {requestTree.length === 0 && (
             <p className="rounded-lg border border-dashed border-white/15 p-3 text-xs text-zinc-400">
-              Nenhuma requisicao ainda.
+              {t("requestTree.none")}
             </p>
           )}
 

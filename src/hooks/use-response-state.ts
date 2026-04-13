@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { useI18n } from "@/components/language-provider";
 import { escapeHtml } from "@/lib/request-page-helpers";
 
 type ResponseTab = "body" | "headers" | "cookies";
@@ -32,6 +33,7 @@ export const useResponseState = ({
   scriptError,
   responseTab,
 }: UseResponseStateParams) => {
+  const { t } = useI18n();
   const prettyResponseBody = useMemo(() => {
     if (!result) {
       return "";
@@ -54,11 +56,11 @@ export const useResponseState = ({
     const errors: string[] = [];
 
     if (requestError) {
-      errors.push(`Request Error:\n${requestError}`);
+      errors.push(`${t("state.requestError")}:\n${requestError}`);
     }
 
     if (scriptError) {
-      errors.push(`Script Error:\n${scriptError}`);
+      errors.push(`${t("state.scriptError")}:\n${scriptError}`);
     }
 
     if (responseTab === "headers") {
@@ -74,7 +76,7 @@ export const useResponseState = ({
     return errors.length
       ? [errors.join("\n\n"), prettyResponseBody].filter(Boolean).join("\n\n")
       : prettyResponseBody;
-  }, [prettyResponseBody, requestError, responseTab, result, scriptError]);
+  }, [prettyResponseBody, requestError, responseTab, result, scriptError, t]);
 
   const responseWebPreviewDocument = useMemo(() => {
     if (!result) {
@@ -127,9 +129,9 @@ export const useResponseState = ({
 
   const hasSuccessfulResponse = Boolean(result && result.status >= 200 && result.status < 300);
   const statusDisplay = requestError
-    ? "Erro"
+    ? t("state.error")
     : result
-      ? `${result.status} ${hasSuccessfulResponse ? "OK" : "Erro"}`
+      ? `${result.status} ${hasSuccessfulResponse ? t("state.ok") : t("state.error")}`
       : "--";
   const secondsDisplay = result ? `${(result.durationMs / 1000).toFixed(2)} s` : "--";
   const transferDisplay = result ? `${(result.totalBytes / 1024).toFixed(2)} KB` : "--";

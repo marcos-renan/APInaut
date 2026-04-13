@@ -14,6 +14,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, GripVertical, Trash2 } from "lucide-react";
 import { type CSSProperties, useState } from "react";
+import { useI18n } from "@/components/language-provider";
 
 type ModalVariable = {
   id: string;
@@ -110,6 +111,7 @@ const SortableEnvironmentRow = ({
   onCancelEditingName,
   onDelete,
 }: SortableEnvironmentRowProps) => {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef: setDraggableNodeRef, transform, isDragging } = useDraggable({
     id: dndId,
   });
@@ -182,7 +184,7 @@ const SortableEnvironmentRow = ({
 
         {isActive && (
           <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
-            ativo
+            {t("env.activeTag")}
           </span>
         )}
       </div>
@@ -198,8 +200,8 @@ const SortableEnvironmentRow = ({
             ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
             : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
         }`}
-        aria-label={isDeletePending ? "Clique novamente para deletar ambiente" : "Deletar ambiente"}
-        title={isDeletePending ? "Clique novamente para deletar" : "Deletar ambiente"}
+        aria-label={isDeletePending ? t("env.deleteEnvironmentConfirm") : t("env.deleteEnvironment")}
+        title={isDeletePending ? t("env.deleteEnvironmentConfirm") : t("env.deleteEnvironment")}
       >
         {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
       </button>
@@ -228,6 +230,7 @@ const SortableVariableRow = ({
   onValueChange,
   onDelete,
 }: SortableVariableRowProps) => {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef: setDraggableNodeRef, transform, isDragging } = useDraggable({
     id: dndId,
   });
@@ -260,8 +263,8 @@ const SortableVariableRow = ({
       <button
         type="button"
         className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 bg-[#0f0c1f] text-zinc-300 transition hover:border-violet-300/50 hover:text-violet-100"
-        aria-label="Arrastar variavel"
-        title="Arrastar variavel"
+        aria-label={t("env.dragVariable")}
+        title={t("env.dragVariable")}
         {...attributes}
         {...listeners}
       >
@@ -277,7 +280,7 @@ const SortableVariableRow = ({
             : "border-white/15 bg-[#121025] hover:bg-white/10"
         }`}
         aria-pressed={variable.enabled}
-        aria-label={variable.enabled ? "Desativar variavel" : "Ativar variavel"}
+        aria-label={variable.enabled ? t("table.toggleOff") : t("table.toggleOn")}
       >
         <span className={`relative h-5 w-9 rounded-full transition ${variable.enabled ? "bg-emerald-500" : "bg-zinc-700"}`}>
           <span
@@ -310,8 +313,8 @@ const SortableVariableRow = ({
             ? "border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
             : "border-white/20 text-zinc-200 hover:border-rose-400/50 hover:bg-rose-500/15 hover:text-rose-100"
         }`}
-        aria-label={isDeletePending ? "Clique novamente para remover variavel" : "Remover variavel"}
-        title={isDeletePending ? "Clique novamente para remover" : "Remover variavel"}
+        aria-label={isDeletePending ? t("env.deleteVariableConfirm") : t("env.deleteVariable")}
+        title={isDeletePending ? t("env.deleteVariableConfirm") : t("env.deleteVariable")}
       >
         {isDeletePending ? <AlertTriangle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
       </button>
@@ -342,6 +345,7 @@ type EnvironmentModalProps = {
 };
 
 export const EnvironmentModal = (props: EnvironmentModalProps) => {
+  const { t } = useI18n();
   const {
     isEnvironmentModalOpen,
     closeEnvironmentModal,
@@ -528,13 +532,13 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <h2 className="text-sm font-semibold text-zinc-100">Gerenciar ambientes</h2>
+              <h2 className="text-sm font-semibold text-zinc-100">{t("env.manage")}</h2>
               <button
                 type="button"
                 onClick={closeEnvironmentModal}
                 className="rounded-md border border-white/20 px-2 py-1 text-xs text-zinc-200 transition hover:bg-white/10"
               >
-                Fechar
+                {t("common.close")}
               </button>
             </div>
 
@@ -550,7 +554,7 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                         : "border-white/15 bg-[#0e0b1c] text-zinc-300 hover:bg-white/10"
                     }`}
                   >
-                    Locais
+                    {t("env.locals")}
                   </button>
                   <button
                     type="button"
@@ -561,7 +565,7 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                         : "border-white/15 bg-[#0e0b1c] text-zinc-300 hover:bg-white/10"
                     }`}
                   >
-                    Globais
+                    {t("env.globals")}
                   </button>
                 </div>
 
@@ -572,14 +576,14 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                         value={newEnvironmentName}
                         onChange={(event) => setNewEnvironmentName(event.target.value)}
                         className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                        placeholder="Nome do ambiente local"
+                        placeholder={t("env.localPlaceholder")}
                       />
                       <button
                         type="button"
                         onClick={createEnvironment}
                         className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
                       >
-                        Criar ambiente local
+                        {t("env.createLocal")}
                       </button>
                     </div>
 
@@ -593,7 +597,7 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                       <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
                         {environments.length === 0 && (
                           <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
-                            Nenhum ambiente local criado.
+                            {t("env.noneLocal")}
                           </p>
                         )}
 
@@ -633,14 +637,14 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                         value={newGlobalEnvironmentName}
                         onChange={(event) => setNewGlobalEnvironmentName(event.target.value)}
                         className="h-9 w-full rounded-md border border-white/15 bg-[#0e0b1c] px-2 text-sm text-zinc-100 outline-none ring-violet-400 transition focus:ring-2"
-                        placeholder="Nome do ambiente global"
+                        placeholder={t("env.globalPlaceholder")}
                       />
                       <button
                         type="button"
                         onClick={createGlobalEnvironment}
                         className="h-9 w-full rounded-md border border-violet-300/45 bg-violet-500/15 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25"
                       >
-                        Criar ambiente global
+                        {t("env.createGlobal")}
                       </button>
                     </div>
                     <DndContext
@@ -653,7 +657,7 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                       <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-auto pr-1">
                         {globalEnvironments.length === 0 && (
                           <p className="rounded-md border border-dashed border-white/15 p-2 text-xs text-zinc-400">
-                            Nenhum ambiente global criado.
+                            {t("env.noneGlobal")}
                           </p>
                         )}
 
@@ -706,17 +710,17 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                               : "border-white/20 text-zinc-200 hover:bg-white/10"
                           }`}
                         >
-                          {collection.activeEnvironmentId === editingEnvironment.id ? "Ambiente local ativo" : "Ativar"}
+                          {collection.activeEnvironmentId === editingEnvironment.id ? t("env.localActive") : t("env.activate")}
                         </button>
                       </div>
 
                       <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
                         <div className="mb-2 hidden grid-cols-[28px_48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-                          <span>Mover</span>
-                          <span>Ativo</span>
-                          <span>Variavel</span>
-                          <span>Valor</span>
-                          <span>Acao</span>
+                          <span>{t("env.columnMove")}</span>
+                          <span>{t("env.columnActive")}</span>
+                          <span>{t("env.columnVariable")}</span>
+                          <span>{t("env.columnValue")}</span>
+                          <span>{t("env.columnAction")}</span>
                         </div>
 
                         <DndContext
@@ -766,12 +770,12 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                           onClick={() => addEnvironmentVariable(editingEnvironment.id)}
                           className="mt-3 rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
                         >
-                          + Adicionar variavel
+                          {t("env.addVariable")}
                         </button>
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-zinc-400">Crie ou selecione um ambiente local para editar.</p>
+                    <p className="text-sm text-zinc-400">{t("env.emptyEditLocal")}</p>
                   )
                 ) : editingGlobalEnvironment ? (
                   <>
@@ -785,20 +789,20 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                             ? "border-emerald-300/55 bg-emerald-500/20 text-emerald-100"
                             : "border-white/20 text-zinc-200 hover:bg-white/10"
                         }`}
-                      >
-                        {globalEnvironmentState.activeEnvironmentId === editingGlobalEnvironment.id
-                          ? "Ambiente global ativo"
-                          : "Ativar"}
+                        >
+                          {globalEnvironmentState.activeEnvironmentId === editingGlobalEnvironment.id
+                            ? t("env.globalActive")
+                            : t("env.activate")}
                       </button>
                     </div>
 
                     <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
                       <div className="mb-2 hidden grid-cols-[28px_48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2 text-xs text-zinc-400 md:grid">
-                        <span>Mover</span>
-                        <span>Ativo</span>
-                        <span>Variavel</span>
-                        <span>Valor</span>
-                        <span>Acao</span>
+                        <span>{t("env.columnMove")}</span>
+                        <span>{t("env.columnActive")}</span>
+                        <span>{t("env.columnVariable")}</span>
+                        <span>{t("env.columnValue")}</span>
+                        <span>{t("env.columnAction")}</span>
                       </div>
 
                       <DndContext
@@ -861,12 +865,12 @@ export const EnvironmentModal = (props: EnvironmentModalProps) => {
                         onClick={() => addGlobalEnvironmentVariable(editingGlobalEnvironment.id)}
                         className="mt-3 rounded-lg border border-violet-300/40 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/10"
                       >
-                        + Adicionar variavel
+                        {t("env.addVariable")}
                       </button>
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-zinc-400">Crie ou selecione um ambiente global para editar.</p>
+                  <p className="text-sm text-zinc-400">{t("env.emptyEditGlobal")}</p>
                 )}
               </section>
             </div>

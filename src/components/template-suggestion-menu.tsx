@@ -1,6 +1,7 @@
 "use client";
 
 import type { RefObject } from "react";
+import { useI18n } from "@/components/language-provider";
 
 type TemplateSuggestion = {
   x: number;
@@ -20,6 +21,8 @@ export const TemplateSuggestionMenu = ({
   templateSuggestionRef,
   applyTemplateSuggestion,
 }: TemplateSuggestionMenuProps) => {
+  const { t } = useI18n();
+
   if (!templateSuggestion) {
     return null;
   }
@@ -34,7 +37,7 @@ export const TemplateSuggestionMenu = ({
       }}
     >
       <p className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-wide text-zinc-400">
-        Variaveis de ambiente
+        {t("templateSuggestion.environmentVariables")}
       </p>
       {templateSuggestion.options.map((option, index) => (
         <button

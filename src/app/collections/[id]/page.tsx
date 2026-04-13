@@ -15,6 +15,7 @@ import {
   ArrowBigLeft,
 } from "lucide-react";
 import { EnvironmentModal } from "@/components/environment-modal";
+import { useI18n } from "@/components/language-provider";
 import { RequestContextMenu } from "@/components/request-context-menu";
 import { RequestEditorPanel } from "@/components/request-editor-panel";
 import { ResponsePanel } from "@/components/response-panel";
@@ -113,6 +114,7 @@ type RequestContextMenuState = {
 } | null;
 
 export default function CollectionDetailsPage() {
+  const { t, locale } = useI18n();
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const requestContextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -620,7 +622,7 @@ export default function CollectionDetailsPage() {
     if (!baseUrl) {
       return {
         value: "",
-        error: "Informe uma URL para visualizar o preview.",
+        error: t("collection.urlPreviewMissing"),
       };
     }
 
@@ -632,10 +634,10 @@ export default function CollectionDetailsPage() {
     } catch {
       return {
         value: "",
-        error: "URL invalida para preview. Verifique URL e variaveis do ambiente.",
+        error: t("collection.urlPreviewInvalid"),
       };
     }
-  }, [activeRequest, activeTemplateVariables]);
+  }, [activeRequest, activeTemplateVariables, t]);
 
   const requestContextMenuTargetNode = useMemo(
     () => (requestContextMenu ? findNodeById(requestTree, requestContextMenu.nodeId) : null),
@@ -870,7 +872,7 @@ export default function CollectionDetailsPage() {
         ),
       }));
     } catch {
-      setRequestError("Falha ao carregar o arquivo selecionado.");
+      setRequestError(t("collection.fileLoadError"));
       setResponseTab("body");
     }
   };
@@ -1757,7 +1759,7 @@ export default function CollectionDetailsPage() {
           if (missingFiles.length > 0) {
             const first = missingFiles[0];
             throw new Error(
-              `Selecione um arquivo para o campo multipart "${first.key}" antes de enviar.`,
+              t("collection.multipartMissingFile", { field: first.key }),
             );
           }
 
@@ -1788,7 +1790,7 @@ export default function CollectionDetailsPage() {
                 try {
                   return JSON.parse(responsePayload.body || "{}");
                 } catch {
-                  throw new Error("A resposta nao e um JSON valido.");
+                  throw new Error(t("collection.scriptInvalidJson"));
                 }
               },
               text: () => responsePayload.body ?? "",
@@ -1798,7 +1800,7 @@ export default function CollectionDetailsPage() {
             }
           : {
               json: () => {
-                throw new Error("Resposta indisponivel no pre-request.");
+                throw new Error(t("collection.scriptResponseUnavailable"));
               },
               text: () => "",
               status: 0,
@@ -1839,7 +1841,7 @@ export default function CollectionDetailsPage() {
       try {
         runUserScript(resolvedRequest.preRequestScript, buildScriptBindings(null));
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Falha no script pre-request.";
+        const message = error instanceof Error ? error.message : t("collection.preRequestScriptError");
         setScriptError(message);
       }
 
@@ -1853,6 +1855,7 @@ export default function CollectionDetailsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-apinaut-locale": locale,
         },
         body: JSON.stringify(payload),
       });
@@ -1873,14 +1876,14 @@ export default function CollectionDetailsPage() {
       try {
         runUserScript(resolvedRequest.afterResponseScript, buildScriptBindings(resultPayload));
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Falha no script after-response.";
+        const message = error instanceof Error ? error.message : t("collection.afterResponseScriptError");
         setScriptError(message);
       }
 
       setResult(resultPayload);
       setResponseTab("body");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro inesperado ao enviar requisicao.";
+      const message = error instanceof Error ? error.message : t("collection.sendUnexpectedError");
       setRequestError(message);
       setResult(null);
       setResponseTab("body");
@@ -1909,7 +1912,7 @@ export default function CollectionDetailsPage() {
     return (
       <main className="h-full overflow-auto bg-[#100e1a] px-6 py-8 text-white">
         <div className="mx-auto w-full max-w-4xl rounded-xl border border-white/10 bg-[#1a1728] p-6">
-          <p className="text-sm text-zinc-300">Carregando colecao...</p>
+          <p className="text-sm text-zinc-300">{t("collection.loading")}</p>
         </div>
       </main>
     );
@@ -1919,15 +1922,15 @@ export default function CollectionDetailsPage() {
     return (
       <main className="h-full overflow-auto bg-[#100e1a] px-6 py-8 text-white">
         <div className="mx-auto w-full max-w-4xl space-y-4 rounded-xl border border-white/10 bg-[#1a1728] p-6">
-          <h1 className="text-xl font-semibold">Colecao nao encontrada</h1>
+          <h1 className="text-xl font-semibold">{t("collection.notFound.title")}</h1>
           <p className="text-sm text-zinc-300">
-            Essa colecao nao existe mais ou foi removida do armazenamento local.
+            {t("collection.notFound.description")}
           </p>
           <Link
             href="/"
             className="inline-flex rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/10"
           >
-            Voltar para colecoes
+            {t("collection.back")}
           </Link>
         </div>
       </main>
@@ -1947,8 +1950,8 @@ export default function CollectionDetailsPage() {
           <Link
             href="/"
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-300/55 bg-violet-500/30 text-violet-100 transition hover:bg-violet-500/45"
-            aria-label="Voltar para colecoes"
-            title="Voltar para colecoes"
+            aria-label={t("collection.back")}
+            title={t("collection.back")}
           >
             <ArrowBigLeft className="h-4 w-4" />
           </Link>
@@ -1959,10 +1962,10 @@ export default function CollectionDetailsPage() {
               value={collection.activeEnvironmentId ?? ""}
               onChange={(nextValue) => setActiveEnvironmentId(nextValue || null)}
               options={[
-                { value: "", label: "Sem ambiente" },
+                { value: "", label: t("collection.noEnvironment") },
                 ...environments.map((environment) => ({
                   value: environment.id,
-                  label: `Local: ${environment.name}`,
+                  label: t("collection.localPrefix", { name: environment.name }),
                 })),
               ]}
               containerClassName="min-w-[180px]"
@@ -1973,10 +1976,10 @@ export default function CollectionDetailsPage() {
               value={globalEnvironmentState.activeEnvironmentId ?? ""}
               onChange={(nextValue) => setActiveGlobalEnvironmentId(nextValue || null)}
               options={[
-                { value: "", label: "Sem global" },
+                { value: "", label: t("collection.noGlobal") },
                 ...globalEnvironments.map((environment) => ({
                   value: environment.id,
-                  label: `Global: ${environment.name}`,
+                  label: t("collection.globalPrefix", { name: environment.name }),
                 })),
               ]}
               containerClassName="min-w-[180px]"
@@ -1988,7 +1991,7 @@ export default function CollectionDetailsPage() {
               onClick={openEnvironmentModal}
               className="h-8 rounded-md border border-violet-300/45 bg-violet-500/15 px-3 text-xs font-medium text-violet-100 transition hover:border-violet-300/70 hover:bg-violet-500/30 hover:text-white"
             >
-              Ambientes
+              {t("collection.environments")}
             </button>
           </div>
         </div>
@@ -2033,7 +2036,7 @@ export default function CollectionDetailsPage() {
                 setResizingPane("left");
               }}
               className="absolute left-1/2 top-0 h-full w-3 -translate-x-1/2 cursor-col-resize"
-              aria-label="Redimensionar painel de requisicoes"
+              aria-label={t("collection.resizeRequests")}
             />
           </div>
 
@@ -2075,7 +2078,7 @@ export default function CollectionDetailsPage() {
                 setResizingPane("right");
               }}
               className="absolute left-1/2 top-0 h-full w-3 -translate-x-1/2 cursor-col-resize"
-              aria-label="Redimensionar painel de resposta"
+              aria-label={t("collection.resizeResponse")}
             />
           </div>
 

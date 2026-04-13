@@ -35,12 +35,118 @@ type UpstreamResult = {
   effectiveUrl: string;
 };
 
+type ErrorLocale = "pt-BR" | "en-US" | "es-ES";
+
+type RouteMessageKey =
+  | "invalidUrl"
+  | "invalidMethod"
+  | "urlRequiresHttp"
+  | "multipartMissingFile"
+  | "multipartInvalidFile"
+  | "localhostNotFound"
+  | "hostNotFound"
+  | "localConnectionRefused"
+  | "connectionRefused"
+  | "connectionTimeout"
+  | "connectionReset"
+  | "connectionFailed"
+  | "localLoopbackTimeout"
+  | "unexpectedRequestError";
+
+const ROUTE_MESSAGES: Record<ErrorLocale, Record<RouteMessageKey, string>> = {
+  "pt-BR": {
+    invalidUrl: "URL inválida.",
+    invalidMethod: "Método inválido.",
+    urlRequiresHttp: "A URL precisa usar http:// ou https://.",
+    multipartMissingFile: "Arquivo multipart ausente para o campo \"{field}\".",
+    multipartInvalidFile: "Arquivo multipart inválido para o campo \"{field}\".",
+    localhostNotFound:
+      "Não foi possível encontrar o host local ({host}). Verifique se o backend/Docker está ativo e se a URL está correta.",
+    hostNotFound: "Não foi possível encontrar o host ({host}). Verifique a URL e sua conexão de rede.",
+    localConnectionRefused:
+      "Não foi possível conectar na API local ({host}) porque a conexão foi recusada. Verifique se o servidor está ligado e ouvindo na porta certa.",
+    connectionRefused: "O servidor recusou a conexão em {host}.",
+    connectionTimeout: "A conexão com {host} excedeu o tempo limite.",
+    connectionReset: "A conexão com {host} foi encerrada inesperadamente.",
+    connectionFailed: "Falha ao conectar no endpoint ({host}). Verifique se o servidor está disponível e tente novamente.",
+    localLoopbackTimeout: "Timeout ao conectar no endpoint local.",
+    unexpectedRequestError: "Erro inesperado ao executar a requisição.",
+  },
+  "en-US": {
+    invalidUrl: "Invalid URL.",
+    invalidMethod: "Invalid method.",
+    urlRequiresHttp: "The URL must use http:// or https://.",
+    multipartMissingFile: "Missing multipart file for field \"{field}\".",
+    multipartInvalidFile: "Invalid multipart file for field \"{field}\".",
+    localhostNotFound:
+      "Could not resolve local host ({host}). Check if backend/Docker is running and if the URL is correct.",
+    hostNotFound: "Could not resolve host ({host}). Check the URL and your network connection.",
+    localConnectionRefused:
+      "Could not connect to local API ({host}) because the connection was refused. Check if the server is running and listening on the correct port.",
+    connectionRefused: "The server refused the connection at {host}.",
+    connectionTimeout: "Connection to {host} timed out.",
+    connectionReset: "Connection to {host} was closed unexpectedly.",
+    connectionFailed: "Failed to connect to endpoint ({host}). Check if the server is available and try again.",
+    localLoopbackTimeout: "Timeout while connecting to local endpoint.",
+    unexpectedRequestError: "Unexpected error while executing request.",
+  },
+  "es-ES": {
+    invalidUrl: "URL inválida.",
+    invalidMethod: "Método inválido.",
+    urlRequiresHttp: "La URL debe usar http:// o https://.",
+    multipartMissingFile: "Falta el archivo multipart para el campo \"{field}\".",
+    multipartInvalidFile: "Archivo multipart inválido para el campo \"{field}\".",
+    localhostNotFound:
+      "No se pudo encontrar el host local ({host}). Verifica si el backend/Docker está activo y si la URL es correcta.",
+    hostNotFound: "No se pudo encontrar el host ({host}). Verifica la URL y tu conexión de red.",
+    localConnectionRefused:
+      "No se pudo conectar con la API local ({host}) porque la conexión fue rechazada. Verifica si el servidor está activo y escuchando en el puerto correcto.",
+    connectionRefused: "El servidor rechazó la conexión en {host}.",
+    connectionTimeout: "La conexión con {host} superó el tiempo límite.",
+    connectionReset: "La conexión con {host} se cerró inesperadamente.",
+    connectionFailed: "No se pudo conectar al endpoint ({host}). Verifica si el servidor está disponible e inténtalo de nuevo.",
+    localLoopbackTimeout: "Tiempo de espera agotado al conectar con el endpoint local.",
+    unexpectedRequestError: "Error inesperado al ejecutar la request.",
+  },
+};
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const encoder = new TextEncoder();
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD"]);
+
+const resolveRequestLocale = (request: NextRequest): ErrorLocale => {
+  const explicit = request.headers.get("x-apinaut-locale");
+  if (explicit === "pt-BR" || explicit === "en-US" || explicit === "es-ES") {
+    return explicit;
+  }
+
+  const acceptLanguage = request.headers.get("accept-language")?.toLowerCase() ?? "";
+  if (acceptLanguage.startsWith("es") || acceptLanguage.includes(",es") || acceptLanguage.includes("es-")) {
+    return "es-ES";
+  }
+
+  if (acceptLanguage.startsWith("en") || acceptLanguage.includes(",en") || acceptLanguage.includes("en-")) {
+    return "en-US";
+  }
+
+  return "pt-BR";
+};
+
+const routeMessage = (
+  locale: ErrorLocale,
+  key: RouteMessageKey,
+  params?: Record<string, string>,
+) => {
+  const template = ROUTE_MESSAGES[locale][key] ?? ROUTE_MESSAGES["pt-BR"][key];
+  if (!params) {
+    return template;
+  }
+
+  return template.replace(/\{(\w+)\}/g, (_, token: string) => params[token] ?? "");
+};
 
 const bytesFromString = (value: string) => encoder.encode(value).length;
 
@@ -71,6 +177,7 @@ const deleteHeaderCaseInsensitive = (headers: Record<string, string>, targetHead
 const escapeQuotedHeaderValue = (value: string) => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
 const buildMultipartBody = (
+  locale: ErrorLocale,
   fields: Array<{
     key: string;
     valueType: "text" | "file";
@@ -96,7 +203,7 @@ const buildMultipartBody = (
       const encodedData = field.fileData?.trim() || "";
 
       if (!encodedData) {
-        throw new Error(`Arquivo multipart ausente para o campo "${field.key}".`);
+        throw new Error(routeMessage(locale, "multipartMissingFile", { field: field.key }));
       }
 
       let fileBuffer: Buffer;
@@ -104,7 +211,7 @@ const buildMultipartBody = (
       try {
         fileBuffer = Buffer.from(encodedData, "base64");
       } catch {
-        throw new Error(`Arquivo multipart invalido para o campo "${field.key}".`);
+        throw new Error(routeMessage(locale, "multipartInvalidFile", { field: field.key }));
       }
 
       chunks.push(
@@ -239,35 +346,39 @@ const collectErrorCodes = (error: unknown, formattedMessage: string) => {
   return codes;
 };
 
-const buildFriendlyConnectionErrorMessage = (targetUrl: URL, errorCodes: Set<string>) => {
+const buildFriendlyConnectionErrorMessage = (
+  targetUrl: URL,
+  errorCodes: Set<string>,
+  locale: ErrorLocale,
+) => {
   const isLocalTarget = isLoopbackHostname(targetUrl.hostname);
   const hostLabel = `${targetUrl.hostname}${targetUrl.port ? `:${targetUrl.port}` : ""}`;
 
   if (errorCodes.has("ENOTFOUND") || errorCodes.has("EAI_AGAIN")) {
     if (isLocalTarget || normalizeHostname(targetUrl.hostname).endsWith(".localhost")) {
-      return `Nao foi possivel encontrar o host local (${hostLabel}). Verifique se o backend/Docker esta ativo e se a URL esta correta.`;
+      return routeMessage(locale, "localhostNotFound", { host: hostLabel });
     }
 
-    return `Nao foi possivel encontrar o host (${hostLabel}). Verifique a URL e sua conexao de rede.`;
+    return routeMessage(locale, "hostNotFound", { host: hostLabel });
   }
 
   if (errorCodes.has("ECONNREFUSED")) {
     if (isLocalTarget) {
-      return `Nao foi possivel conectar na API local (${hostLabel}) porque a conexao foi recusada. Verifique se o servidor esta ligado e ouvindo na porta certa.`;
+      return routeMessage(locale, "localConnectionRefused", { host: hostLabel });
     }
 
-    return `O servidor recusou a conexao em ${hostLabel}.`;
+    return routeMessage(locale, "connectionRefused", { host: hostLabel });
   }
 
   if (errorCodes.has("ETIMEDOUT") || errorCodes.has("ECONNABORTED")) {
-    return `A conexao com ${hostLabel} excedeu o tempo limite.`;
+    return routeMessage(locale, "connectionTimeout", { host: hostLabel });
   }
 
   if (errorCodes.has("ECONNRESET")) {
-    return `A conexao com ${hostLabel} foi encerrada inesperadamente.`;
+    return routeMessage(locale, "connectionReset", { host: hostLabel });
   }
 
-  return `Falha ao conectar no endpoint (${hostLabel}). Verifique se o servidor esta disponivel e tente novamente.`;
+  return routeMessage(locale, "connectionFailed", { host: hostLabel });
 };
 
 const runFetch = async (url: string, input: RequestInput): Promise<UpstreamResult> => {
@@ -305,7 +416,12 @@ const runFetch = async (url: string, input: RequestInput): Promise<UpstreamResul
   };
 };
 
-const runNodeLoopbackRequest = (parsed: URL, connectHost: string, input: RequestInput): Promise<UpstreamResult> =>
+const runNodeLoopbackRequest = (
+  parsed: URL,
+  connectHost: string,
+  input: RequestInput,
+  locale: ErrorLocale,
+): Promise<UpstreamResult> =>
   new Promise((resolve, reject) => {
     const isHttps = parsed.protocol === "https:";
     const requestHeaders = { ...input.headers };
@@ -371,7 +487,7 @@ const runNodeLoopbackRequest = (parsed: URL, connectHost: string, input: Request
     const req = isHttps ? https.request(requestOptions, handleResponse) : http.request(requestOptions, handleResponse);
 
     req.setTimeout(15000, () => {
-      req.destroy(new Error("Timeout ao conectar no endpoint local."));
+      req.destroy(new Error(routeMessage(locale, "localLoopbackTimeout")));
     });
 
     req.on("error", reject);
@@ -387,14 +503,18 @@ const runNodeLoopbackRequest = (parsed: URL, connectHost: string, input: Request
     req.end();
   });
 
-const runLocalAliasFallback = async (candidateUrl: string, input: RequestInput): Promise<UpstreamResult> => {
+const runLocalAliasFallback = async (
+  candidateUrl: string,
+  input: RequestInput,
+  locale: ErrorLocale,
+): Promise<UpstreamResult> => {
   const parsed = new URL(candidateUrl);
   const connectTargets = ["127.0.0.1", "::1", "localhost"];
   const errors: string[] = [];
 
   for (const target of connectTargets) {
     try {
-      return await runNodeLoopbackRequest(parsed, target, input);
+      return await runNodeLoopbackRequest(parsed, target, input, locale);
     } catch (error) {
       errors.push(`${target} -> ${formatNetworkError(error)}`);
     }
@@ -405,14 +525,15 @@ const runLocalAliasFallback = async (candidateUrl: string, input: RequestInput):
 
 export async function POST(request: NextRequest) {
   try {
+    const locale = resolveRequestLocale(request);
     const payload = (await request.json()) as RequestPayload;
 
     if (!payload.url || typeof payload.url !== "string") {
-      return NextResponse.json({ ok: false, error: "URL invalida." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: routeMessage(locale, "invalidUrl") }, { status: 400 });
     }
 
     if (!payload.method || typeof payload.method !== "string") {
-      return NextResponse.json({ ok: false, error: "Metodo invalido." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: routeMessage(locale, "invalidMethod") }, { status: 400 });
     }
 
     let parsedUrl: URL;
@@ -420,12 +541,12 @@ export async function POST(request: NextRequest) {
     try {
       parsedUrl = new URL(payload.url);
     } catch {
-      return NextResponse.json({ ok: false, error: "URL invalida." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: routeMessage(locale, "invalidUrl") }, { status: 400 });
     }
 
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
       return NextResponse.json(
-        { ok: false, error: "A URL precisa usar http:// ou https://." },
+        { ok: false, error: routeMessage(locale, "urlRequiresHttp") },
         { status: 400 },
       );
     }
@@ -470,7 +591,7 @@ export async function POST(request: NextRequest) {
           : [];
 
         if (normalizedFields.length > 0) {
-          const multipart = buildMultipartBody(normalizedFields);
+          const multipart = buildMultipartBody(locale, normalizedFields);
           requestBody = multipart.body;
           deleteHeaderCaseInsensitive(headers, "content-type");
           deleteHeaderCaseInsensitive(headers, "content-length");
@@ -506,7 +627,7 @@ export async function POST(request: NextRequest) {
 
         if (isLoopbackHostname(candidateParsed.hostname)) {
           try {
-            upstreamResult = await runLocalAliasFallback(candidateUrl, requestInput);
+            upstreamResult = await runLocalAliasFallback(candidateUrl, requestInput, locale);
             break;
           } catch (fallbackError) {
             const formattedFallbackError = formatNetworkError(fallbackError);
@@ -520,7 +641,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!upstreamResult) {
-      const friendlyMessage = buildFriendlyConnectionErrorMessage(parsedUrl, errorCodes);
+      const friendlyMessage = buildFriendlyConnectionErrorMessage(parsedUrl, errorCodes, locale);
 
       return NextResponse.json(
         {
@@ -557,7 +678,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro inesperado ao executar a requisicao.";
+    const locale = resolveRequestLocale(request);
+    const message = error instanceof Error ? error.message : routeMessage(locale, "unexpectedRequestError");
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
+

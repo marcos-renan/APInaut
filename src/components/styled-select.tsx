@@ -2,6 +2,7 @@
 
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "@/components/language-provider";
 
 export type StyledSelectOption = {
   value: string;
@@ -24,13 +25,14 @@ export const StyledSelect = ({
   value,
   onChange,
   options,
-  placeholder = "Selecionar",
+  placeholder,
   containerClassName = "",
   triggerClassName = "",
   menuClassName = "",
   optionClassName = "",
   menuPlacement = "auto",
 }: StyledSelectProps) => {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [resolvedPlacement, setResolvedPlacement] = useState<"bottom" | "top">("bottom");
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -112,6 +114,8 @@ export const StyledSelect = ({
     };
   }, [isOpen, menuPlacement, options.length]);
 
+  const resolvedPlaceholder = placeholder ?? t("common.select");
+
   return (
     <div ref={containerRef} className={`relative ${containerClassName}`}>
       <button
@@ -119,7 +123,7 @@ export const StyledSelect = ({
         onClick={() => setIsOpen((current) => !current)}
         className={`flex w-full items-center justify-between rounded-md border border-violet-300/45 bg-violet-500/15 px-2 text-xs font-medium text-violet-100 outline-none ring-violet-400 transition hover:bg-violet-500/25 focus:ring-2 ${triggerClassName}`}
       >
-        <span className="truncate">{selectedOption?.label ?? placeholder}</span>
+        <span className="truncate">{selectedOption?.label ?? resolvedPlaceholder}</span>
         <ChevronDown className={`ml-2 h-4 w-4 shrink-0 transition ${isOpen ? "rotate-180" : ""}`} />
       </button>
 

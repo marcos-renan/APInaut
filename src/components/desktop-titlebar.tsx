@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Copy, Minus, X } from "lucide-react";
+import { useI18n } from "@/components/language-provider";
+import { LanguageSelector } from "@/components/language-selector";
 
 const TITLEBAR_HEIGHT_PX = 44;
 
 export const DesktopTitleBar = () => {
+  const { t } = useI18n();
   const [isDesktop, setIsDesktop] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -104,13 +107,17 @@ export const DesktopTitleBar = () => {
         <span className="text-sm font-semibold text-zinc-100">APInaut</span>
       </div>
 
-      <div className="apinaut-titlebar-no-drag ml-auto flex items-stretch">
+      <div className="apinaut-titlebar-no-drag ml-auto flex items-center gap-2 pr-2">
+        <LanguageSelector compact />
+      </div>
+
+      <div className="apinaut-titlebar-no-drag flex items-stretch">
         <button
           type="button"
           onClick={() => window.apinautDesktop?.minimize()}
           className="inline-flex h-11 w-14 items-center justify-center text-zinc-200 transition hover:bg-white/10"
-          aria-label="Minimizar"
-          title="Minimizar"
+          aria-label={t("titlebar.minimize")}
+          title={t("titlebar.minimize")}
         >
           <Minus className="h-5 w-5" />
         </button>
@@ -118,8 +125,8 @@ export const DesktopTitleBar = () => {
           type="button"
           onClick={() => window.apinautDesktop?.toggleMaximize()}
           className="inline-flex h-11 w-14 items-center justify-center text-zinc-200 transition hover:bg-white/10"
-          aria-label={isMaximized ? "Restaurar" : "Maximizar"}
-          title={isMaximized ? "Restaurar" : "Maximizar"}
+          aria-label={isMaximized ? t("titlebar.restore") : t("titlebar.maximize")}
+          title={isMaximized ? t("titlebar.restore") : t("titlebar.maximize")}
         >
           <Copy className="h-4 w-4" />
         </button>
@@ -127,8 +134,8 @@ export const DesktopTitleBar = () => {
           type="button"
           onClick={() => window.apinautDesktop?.close()}
           className="inline-flex h-11 w-14 items-center justify-center text-rose-100 transition hover:bg-rose-500/85"
-          aria-label="Fechar"
-          title="Fechar"
+          aria-label={t("titlebar.close")}
+          title={t("titlebar.close")}
         >
           <X className="h-5 w-5" />
         </button>

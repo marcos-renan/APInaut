@@ -3,6 +3,7 @@
 import { Copy, Eye, EyeOff, Send } from "lucide-react";
 
 import { CodeEditor } from "@/components/code-editor";
+import { useI18n } from "@/components/language-provider";
 import { KeyValueEditor, MultipartFormEditor } from "@/components/request-editors";
 import { StyledSelect } from "@/components/styled-select";
 import type { ApiRequest } from "@/lib/collections";
@@ -14,6 +15,7 @@ type ScriptTab = "pre-request" | "after-response";
 type RequestEditorPanelProps = Record<string, any>;
 
 export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
+  const { t } = useI18n();
   const {
     activeRequest,
     updateActiveRequest,
@@ -100,8 +102,8 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                 onClick={sendRequest}
                 disabled={isSending}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500 transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-70"
-                aria-label={isSending ? "Enviando requisicao" : "Enviar requisicao"}
-                title={isSending ? "Enviando..." : "Enviar"}
+                aria-label={isSending ? t("editor.sendingRequest") : t("editor.sendRequest")}
+                title={isSending ? t("editor.sending") : t("editor.send")}
               >
                 <Send className="h-4 w-4" />
               </button>
@@ -109,12 +111,12 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
           </div>
 
           <div className="mb-3 flex shrink-0 flex-wrap gap-2 border-b border-white/10 px-3 pb-3">
-            {[
-              { id: "params", label: "Params" },
-              { id: "body", label: "Body" },
-              { id: "auth", label: "Auth" },
-              { id: "headers", label: "Headers" },
-              { id: "script", label: "Script" },
+              {[
+              { id: "params", label: t("editor.tab.params") },
+              { id: "body", label: t("editor.tab.body") },
+              { id: "auth", label: t("editor.tab.auth") },
+              { id: "headers", label: t("editor.tab.headers") },
+              { id: "script", label: t("editor.tab.script") },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -134,7 +136,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
               <div className="h-full overflow-auto pr-1">
                 <div className="mb-3 rounded-lg border border-white/10 bg-[#121025] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">URL Preview</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">{t("editor.urlPreview")}</p>
                     <button
                       type="button"
                       onClick={copyUrlPreview}
@@ -144,14 +146,14 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                           ? "border-emerald-300/50 bg-emerald-500/20 text-emerald-100"
                           : "border-white/15 bg-[#1a1728] text-zinc-200 hover:bg-white/10"
                       } disabled:cursor-not-allowed disabled:opacity-50`}
-                      aria-label="Copiar URL preview"
-                      title="Copiar URL preview"
+                      aria-label={t("editor.copyUrlPreview")}
+                      title={t("editor.copyUrlPreview")}
                     >
                       <Copy className="h-4 w-4" />
                     </button>
                   </div>
-                  {urlPreview.error ? (
-                    <p className="text-xs text-rose-300">{urlPreview.error}</p>
+                    {urlPreview.error ? (
+                      <p className="text-xs text-rose-300">{urlPreview.error}</p>
                   ) : (
                     <p className="break-all text-xs text-zinc-200">{urlPreview.value || "--"}</p>
                   )}
@@ -192,10 +194,10 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                     }))
                   }
                   options={[
-                    { value: "none", label: "Sem body" },
-                    { value: "json", label: "JSON" },
-                    { value: "text", label: "Text" },
-                    { value: "multipart", label: "Multipart Form" },
+                    { value: "none", label: t("editor.body.none") },
+                    { value: "json", label: t("editor.body.json") },
+                    { value: "text", label: t("editor.body.text") },
+                    { value: "multipart", label: t("editor.body.multipart") },
                   ]}
                   triggerClassName="h-10 rounded-lg px-3 text-sm"
                 />
@@ -231,10 +233,10 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                     className={activeRequest.bodyMode === "none" ? "min-h-0 flex-1 opacity-60" : "min-h-0 flex-1"}
                     placeholder={
                       activeRequest.bodyMode === "none"
-                        ? "Selecione JSON, Text ou Multipart para habilitar o body."
+                        ? t("editor.body.nonePlaceholder")
                         : activeRequest.bodyMode === "json"
                           ? '{\n  "name": "APInaut"\n}'
-                          : "Digite o body da requisicao."
+                          : t("editor.body.textPlaceholder")
                     }
                   />
                 )}
@@ -252,9 +254,9 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                     }))
                   }
                   options={[
-                    { value: "none", label: "Nenhuma" },
-                    { value: "bearer", label: "Bearer Token" },
-                    { value: "basic", label: "Basic Auth" },
+                    { value: "none", label: t("editor.auth.none") },
+                    { value: "bearer", label: t("editor.auth.bearer") },
+                    { value: "basic", label: t("editor.auth.basic") },
                   ]}
                   triggerClassName="h-10 rounded-lg px-3 text-sm"
                 />
@@ -285,8 +287,8 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                       type="button"
                       onClick={() => setShowBearerToken((current: boolean) => !current)}
                       className="absolute right-2 top-1/2 z-10 -translate-y-1/2 text-zinc-300 transition hover:text-white"
-                      aria-label={showBearerToken ? "Ocultar token" : "Mostrar token"}
-                      title={showBearerToken ? "Ocultar token" : "Mostrar token"}
+                      aria-label={showBearerToken ? t("editor.auth.hideToken") : t("editor.auth.showToken")}
+                      title={showBearerToken ? t("editor.auth.hideToken") : t("editor.auth.showToken")}
                     >
                       {showBearerToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -339,8 +341,8 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                         type="button"
                         onClick={() => setShowBasicPassword((current: boolean) => !current)}
                         className="absolute right-2 top-1/2 z-10 -translate-y-1/2 text-zinc-300 transition hover:text-white"
-                        aria-label={showBasicPassword ? "Ocultar senha" : "Mostrar senha"}
-                        title={showBasicPassword ? "Ocultar senha" : "Mostrar senha"}
+                        aria-label={showBasicPassword ? t("editor.auth.hidePassword") : t("editor.auth.showPassword")}
+                        title={showBasicPassword ? t("editor.auth.hidePassword") : t("editor.auth.showPassword")}
                       >
                         {showBasicPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
@@ -362,7 +364,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                         : "bg-white/5 text-zinc-300 hover:bg-white/10"
                     }`}
                   >
-                    Pre-request
+                    {t("editor.script.preRequest")}
                   </button>
                   <button
                     type="button"
@@ -373,7 +375,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                         : "bg-white/5 text-zinc-300 hover:bg-white/10"
                     }`}
                   >
-                    After-response
+                    {t("editor.script.afterResponse")}
                   </button>
                 </div>
 
@@ -403,26 +405,18 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                 />
 
                 <div className="rounded-lg border border-white/10 bg-[#121025] p-3 text-xs text-zinc-300">
-                  <p className="font-medium text-zinc-200">Atalhos de script:</p>
-                  <p className="mt-1">`apinaut.response.json()` para ler JSON da resposta.</p>
-                  <p>
-                    `apinaut.environment.set(&quot;token&quot;, &quot;...&quot;)` para salvar variavel no ambiente
-                    ativo.
-                  </p>
-                  <p>
-                    `apinaut.global.set(&quot;url_base&quot;, &quot;http://localhost:8080/&quot;)` para salvar no
-                    ambiente global ativo.
-                  </p>
-                  <p className="mt-1 text-zinc-400">
-                    Tambem funciona com compatibilidade: `insomnia.collectionVariables.set(...)`.
-                  </p>
+                  <p className="font-medium text-zinc-200">{t("editor.script.shortcuts")}</p>
+                  <p className="mt-1">{t("editor.script.shortcutResponseJson")}</p>
+                  <p>{t("editor.script.shortcutEnvSet")}</p>
+                  <p>{t("editor.script.shortcutGlobalSet")}</p>
+                  <p className="mt-1 text-zinc-400">{t("editor.script.shortcutCompat")}</p>
                 </div>
               </div>
             )}
           </div>
         </>
       ) : (
-        <p className="text-sm text-zinc-400">Crie ou selecione uma requisicao para comecar.</p>
+        <p className="text-sm text-zinc-400">{t("editor.empty")}</p>
       )}
     </section>
   );

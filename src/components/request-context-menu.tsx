@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/components/language-provider";
+
 type RequestContextMenuProps = Record<string, any>;
 
 export const RequestContextMenu = ({
@@ -12,6 +14,8 @@ export const RequestContextMenu = ({
   startEditingFolderName,
   deleteNode,
 }: RequestContextMenuProps) => {
+  const { t } = useI18n();
+
   if (!requestContextMenu || !requestContextMenuTargetNode) {
     return null;
   }
@@ -32,14 +36,14 @@ export const RequestContextMenu = ({
             onClick={() => createRequestInFolder(requestContextMenuTargetNode.id)}
             className="w-full rounded-md px-3 py-2 text-left text-sm text-violet-100 transition hover:bg-violet-500/20"
           >
-            Nova request aqui
+            {t("requestMenu.newRequestHere")}
           </button>
           <button
             type="button"
             onClick={() => createFolderInFolder(requestContextMenuTargetNode.id)}
             className="w-full rounded-md px-3 py-2 text-left text-sm text-violet-100 transition hover:bg-violet-500/20"
           >
-            Nova pasta aqui
+            {t("requestMenu.newFolderHere")}
           </button>
         </>
       )}
@@ -55,14 +59,14 @@ export const RequestContextMenu = ({
         }
         className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-white/10"
       >
-        Renomear
+        {t("common.rename")}
       </button>
       <button
         type="button"
         onClick={() => deleteNode(requestContextMenuTargetNode.id)}
         className="w-full rounded-md px-3 py-2 text-left text-sm text-rose-200 transition hover:bg-rose-500/20"
       >
-        Deletar
+        {t("common.delete")}
       </button>
     </div>
   );
