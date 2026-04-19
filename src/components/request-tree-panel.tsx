@@ -161,12 +161,19 @@ export const RequestTreePanel = ({
     return !target.closest("button,input,textarea,select,[contenteditable='true']");
   };
 
-  const isTreeBackgroundTarget = (target: EventTarget | null) => {
-    if (!(target instanceof HTMLElement)) {
+  const isTreeBackgroundOrRowGutterTarget = (event: PointerEvent) => {
+    if (!(event.target instanceof HTMLElement)) {
       return false;
     }
 
-    return !target.closest("[data-tree-row='true']");
+    const row = event.target.closest("[data-tree-row='true']");
+    if (!(row instanceof HTMLElement)) {
+      return true;
+    }
+
+    const rowRect = row.getBoundingClientRect();
+    const paddingLeft = Number.parseFloat(window.getComputedStyle(row).paddingLeft || "0");
+    return event.clientX < rowRect.left + paddingLeft;
   };
 
   const isPrimaryPointerDown = (event: Event) => {
@@ -319,7 +326,7 @@ export const RequestTreePanel = ({
         return;
       }
 
-      if (!isTreeBackgroundTarget(event.target)) {
+      if (!isTreeBackgroundOrRowGutterTarget(event)) {
         return;
       }
 
