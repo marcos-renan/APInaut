@@ -518,11 +518,13 @@ export default function CollectionDetailsPage() {
       );
     }
 
-    if (activeRequestId !== storedRequestId) {
+    const shouldSyncActiveRequest = activeRequestId !== storedRequestId;
+
+    if (shouldSyncActiveRequest) {
       setActiveRequestId(storedRequestId);
     }
 
-    if (storedRequestId) {
+    if (storedRequestId && shouldSyncActiveRequest) {
       const folderPath = findFolderPathForRequest(requestTree, storedRequestId) ?? [];
 
       if (folderPath.length > 0) {
