@@ -11,7 +11,6 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import DragSelect from "dragselect";
 import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -35,7 +34,6 @@ import {
   ShiftAwarePointerSensor,
   flattenNodeIdsInRenderOrder,
   getTopLevelSelectionForMove,
-  haveSameNodeSelection,
   parseDropTargetId,
 } from "@/components/request-tree-panel.utils";
 
@@ -71,9 +69,13 @@ export const RequestTreePanel = ({
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isRectangleSelecting, setIsRectangleSelecting] = useState(false);
   const treeSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const dragSelectRef = useRef<DragSelect<HTMLElement> | null>(null);
-  const isSyncingDragSelectRef = useRef(false);
   const lastSelectionActivationPointRef = useRef<{ time: number; x: number; y: number } | null>(null);
+  const rectangleSessionRef = useRef<{
+    pointerId: number;
+    areaRect: DOMRect;
+    start: { x: number; y: number };
+  } | null>(null);
+  const selectionOverlayRef = useRef<HTMLDivElement | null>(null);
 
   const sensors = useSensors(
     useSensor(ShiftAwarePointerSensor, {
@@ -192,13 +194,6 @@ export const RequestTreePanel = ({
     };
   };
 
-  const mapElementsToNodeIds = (elements: HTMLElement[]) =>
-    elements
-      .map((element) =>
-        element instanceof HTMLElement ? element.dataset.nodeId ?? null : null,
-      )
-      .filter((nodeId): nodeId is string => Boolean(nodeId));
-
   useEffect(() => {
     const area = treeSurfaceRef.current;
 
@@ -206,12 +201,8 @@ export const RequestTreePanel = ({
       return;
     }
 
-    const selectables = Array.from(
-      area.querySelectorAll<HTMLElement>(".apinaut-tree-selectable"),
-    );
-
     const selector = document.createElement("div");
-    selector.style.position = "absolute";
+    selector.style.position = "fixed";
     selector.style.pointerEvents = "none";
     selector.style.border = "1px solid rgba(196, 181, 253, 0.96)";
     selector.style.background = "rgba(167, 139, 250, 0.28)";
@@ -219,60 +210,121 @@ export const RequestTreePanel = ({
     selector.style.mixBlendMode = "normal";
     selector.style.borderRadius = "6px";
     selector.style.zIndex = "2147483647";
-    selector.style.visibility = "hidden";
+    selector.style.display = "none";
+    document.body.appendChild(selector);
+    selectionOverlayRef.current = selector;
 
-    const dragSelect = new DragSelect<HTMLElement>({
-      area,
-      selectables,
-      selector,
-      draggability: false,
-      immediateDrag: false,
-      useLayers: false,
-      multiSelectMode: false,
-      multiSelectToggling: false,
-      multiSelectKeys: [],
-      usePointerEvents: false,
-      selectionThreshold: 0,
-      customStyles: true,
+    const getClampedPoint = (x: number, y: number, areaRect: DOMRect) => ({
+      x: Math.min(Math.max(x, areaRect.left), areaRect.right),
+      y: Math.min(Math.max(y, areaRect.top), areaRect.bottom),
     });
 
-    const handleStartPre = (payload: { event?: Event }) => {
-      const event = payload.event;
+    const setSelectorRect = (
+      start: { x: number; y: number },
+      current: { x: number; y: number },
+    ) => {
+      const left = Math.min(start.x, current.x);
+      const top = Math.min(start.y, current.y);
+      const width = Math.abs(current.x - start.x);
+      const height = Math.abs(current.y - start.y);
 
-      if (!event) {
-        selector.style.visibility = "hidden";
-        setIsRectangleSelecting(false);
-        dragSelect.break();
+      selector.style.left = `${left}px`;
+      selector.style.top = `${top}px`;
+      selector.style.width = `${width}px`;
+      selector.style.height = `${height}px`;
+      selector.style.display = "block";
+    };
+
+    const updateSelectionFromRectangle = (start: { x: number; y: number }, current: { x: number; y: number }) => {
+      const selectionRect = {
+        left: Math.min(start.x, current.x),
+        right: Math.max(start.x, current.x),
+        top: Math.min(start.y, current.y),
+        bottom: Math.max(start.y, current.y),
+      };
+
+      const selectables = Array.from(
+        area.querySelectorAll<HTMLElement>(".apinaut-tree-selectable"),
+      );
+
+      const nextSelection = selectables
+        .filter((element) => {
+          const elementRect = element.getBoundingClientRect();
+          return (
+            elementRect.right >= selectionRect.left &&
+            elementRect.left <= selectionRect.right &&
+            elementRect.bottom >= selectionRect.top &&
+            elementRect.top <= selectionRect.bottom
+          );
+        })
+        .map((element) => element.dataset.nodeId ?? null)
+        .filter((nodeId): nodeId is string => Boolean(nodeId));
+
+      setSelectedNodeIds((currentSelection) =>
+        currentSelection.length === nextSelection.length &&
+        currentSelection.every((nodeId) => nextSelection.includes(nodeId))
+          ? currentSelection
+          : nextSelection,
+      );
+    };
+
+    const endRectangleSelection = (pointerId?: number) => {
+      const session = rectangleSessionRef.current;
+      if (!session) {
+        return;
+      }
+
+      if (
+        typeof pointerId === "number" &&
+        pointerId !== session.pointerId
+      ) {
+        return;
+      }
+
+      if (area.hasPointerCapture(session.pointerId)) {
+        area.releasePointerCapture(session.pointerId);
+      }
+
+      rectangleSessionRef.current = null;
+      selector.style.display = "none";
+      setIsRectangleSelecting(false);
+      document.body.style.userSelect = "";
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const session = rectangleSessionRef.current;
+      if (!session) {
+        return;
+      }
+
+      const clamped = getClampedPoint(event.clientX, event.clientY, session.areaRect);
+      setSelectorRect(session.start, clamped);
+      updateSelectionFromRectangle(session.start, clamped);
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      endRectangleSelection(event.pointerId);
+    };
+
+    const handlePointerCancel = (event: PointerEvent) => {
+      endRectangleSelection(event.pointerId);
+    };
+
+    const handleAreaPointerDown = (event: PointerEvent) => {
+      if (!isPrimaryPointerDown(event)) {
         return;
       }
 
       if (!canStartSelectionFromTarget(event.target)) {
-        selector.style.visibility = "hidden";
-        setIsRectangleSelecting(false);
-        dragSelect.break();
         return;
       }
 
       if (!isTreeBackgroundTarget(event.target)) {
-        selector.style.visibility = "hidden";
-        setIsRectangleSelecting(false);
-        dragSelect.break();
-        return;
-      }
-
-      if (!isPrimaryPointerDown(event)) {
-        selector.style.visibility = "hidden";
-        setIsRectangleSelecting(false);
-        dragSelect.break();
         return;
       }
 
       const coordinates = getPointerCoordinates(event);
-
       if (!coordinates) {
-        selector.style.visibility = "hidden";
-        setIsRectangleSelecting(false);
-        dragSelect.break();
         return;
       }
 
@@ -289,83 +341,42 @@ export const RequestTreePanel = ({
           x: coordinates.x,
           y: coordinates.y,
         };
-        selector.style.visibility = "hidden";
-        setIsRectangleSelecting(false);
-        dragSelect.break();
         return;
       }
 
       lastSelectionActivationPointRef.current = null;
+      const areaRect = area.getBoundingClientRect();
+      const start = getClampedPoint(coordinates.x, coordinates.y, areaRect);
+
+      rectangleSessionRef.current = {
+        pointerId: event.pointerId,
+        areaRect,
+        start,
+      };
+
+      area.setPointerCapture(event.pointerId);
       setIsRectangleSelecting(true);
       document.body.style.userSelect = "none";
-      selector.style.visibility = "visible";
+      setSelectorRect(start, start);
+      updateSelectionFromRectangle(start, start);
+      event.preventDefault();
     };
 
-    const syncSelectedNodeIds = () => {
-      if (isSyncingDragSelectRef.current) {
-        return;
-      }
-
-      const nextSelection = mapElementsToNodeIds(dragSelect.getSelection());
-      setSelectedNodeIds((currentSelection) =>
-        haveSameNodeSelection(currentSelection, nextSelection) ? currentSelection : nextSelection,
-      );
-    };
-
-    const startSubscriptionId = dragSelect.subscribe("DS:start:pre", handleStartPre);
-    const endSubscriptionId = dragSelect.subscribe("DS:end", () => {
-      selector.style.visibility = "hidden";
-      setIsRectangleSelecting(false);
-      document.body.style.userSelect = "";
-      syncSelectedNodeIds();
-    });
-
-    dragSelectRef.current = dragSelect;
+    area.addEventListener("pointerdown", handleAreaPointerDown);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
 
     return () => {
-      dragSelect.unsubscribe("DS:start:pre", undefined, startSubscriptionId);
-      dragSelect.unsubscribe("DS:end", undefined, endSubscriptionId);
-      selector.style.visibility = "hidden";
-      setIsRectangleSelecting(false);
-      document.body.style.userSelect = "";
-      dragSelect.stop();
+      area.removeEventListener("pointerdown", handleAreaPointerDown);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+      endRectangleSelection();
       selector.remove();
-      dragSelectRef.current = null;
+      selectionOverlayRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    const area = treeSurfaceRef.current;
-    const dragSelect = dragSelectRef.current;
-
-    if (!area || !dragSelect) {
-      return;
-    }
-
-    const selectables = Array.from(
-      area.querySelectorAll<HTMLElement>(".apinaut-tree-selectable"),
-    );
-    dragSelect.setSettings({ selectables });
-
-    const selectedNodeSet = new Set(selectedNodeIds);
-    const selectedElements = selectables.filter((element) => {
-      const nodeId = element.dataset.nodeId;
-      return Boolean(nodeId && selectedNodeSet.has(nodeId));
-    });
-
-    const currentSelection = mapElementsToNodeIds(dragSelect.getSelection());
-    const nextSelection = selectedElements
-      .map((element) => element.dataset.nodeId ?? null)
-      .filter((nodeId): nodeId is string => Boolean(nodeId));
-
-    if (haveSameNodeSelection(currentSelection, nextSelection)) {
-      return;
-    }
-
-    isSyncingDragSelectRef.current = true;
-    dragSelect.setSelection(selectedElements, false, true);
-    isSyncingDragSelectRef.current = false;
-  }, [orderedNodeIds, selectedNodeIds]);
 
   useEffect(() => {
     const handlePointerDownOutsideTree = (event: PointerEvent) => {
