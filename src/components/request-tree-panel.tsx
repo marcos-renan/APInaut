@@ -173,7 +173,7 @@ export const RequestTreePanel = ({
 
     const rowRect = row.getBoundingClientRect();
     const paddingLeft = Number.parseFloat(window.getComputedStyle(row).paddingLeft || "0");
-    return event.clientX < rowRect.left + paddingLeft;
+    return event.clientX < rowRect.left + paddingLeft + 24;
   };
 
   const isPrimaryPointerDown = (event: Event) => {
@@ -326,10 +326,6 @@ export const RequestTreePanel = ({
         return;
       }
 
-      if (!isTreeBackgroundOrRowGutterTarget(event)) {
-        return;
-      }
-
       const coordinates = getPointerCoordinates(event);
       if (!coordinates) {
         return;
@@ -337,10 +333,14 @@ export const RequestTreePanel = ({
 
       const now = performance.now();
       const previous = lastSelectionActivationPointRef.current;
-      const isDoubleClickActivation =
+      const isBrowserDoubleClick =
+        typeof event.detail === "number" && event.detail >= 2;
+      const isTimingDistanceDoubleClick =
         previous !== null &&
         now - previous.time <= DOUBLE_CLICK_SELECTION_INTERVAL_MS &&
         Math.hypot(coordinates.x - previous.x, coordinates.y - previous.y) <= DOUBLE_CLICK_SELECTION_MAX_DISTANCE;
+      const isDoubleClickActivation =
+        isBrowserDoubleClick || isTimingDistanceDoubleClick;
 
       if (!isDoubleClickActivation) {
         lastSelectionActivationPointRef.current = {
@@ -348,6 +348,10 @@ export const RequestTreePanel = ({
           x: coordinates.x,
           y: coordinates.y,
         };
+        return;
+      }
+
+      if (!isTreeBackgroundOrRowGutterTarget(event)) {
         return;
       }
 
