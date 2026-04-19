@@ -11,6 +11,17 @@ import {
   type ChangeEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { dump, load } from "js-yaml";
 import { useI18n } from "@/components/language-provider";
 import {
@@ -23,7 +34,9 @@ import {
   parseCollectionsData,
   saveCollections,
   subscribeCollections,
+  updateCollections,
 } from "@/lib/collections";
+import { reorderItemsById } from "@/lib/request-page-helpers";
 
 type CollectionMenuState = {
   collectionId: string;
@@ -56,6 +69,102 @@ const countFoldersInTree = (nodes: RequestTreeNode[]): number => {
   return count;
 };
 
+type DraggableCollectionCardProps = {
+  id: string;
+  name: string;
+  createdOnLabel: string;
+  environmentsLabel: string;
+  foldersLabel: string;
+  requestsLabel: string;
+  openHintLabel: string;
+  optionsLabel: string;
+  activeDragCollectionId: string | null;
+  onOpenCollection: (collectionId: string) => void;
+  onOpenCollectionMenu: (event: ReactMouseEvent<HTMLButtonElement>, collectionId: string) => void;
+};
+
+const DraggableCollectionCard = ({
+  id,
+  name,
+  createdOnLabel,
+  environmentsLabel,
+  foldersLabel,
+  requestsLabel,
+  openHintLabel,
+  optionsLabel,
+  activeDragCollectionId,
+  onOpenCollection,
+  onOpenCollectionMenu,
+}: DraggableCollectionCardProps) => {
+  const {
+    listeners,
+    setNodeRef: setDraggableNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({
+    id,
+  });
+  const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({
+    id,
+  });
+
+  const setCombinedNodeRef = (element: HTMLElement | null) => {
+    setDraggableNodeRef(element);
+    setDroppableNodeRef(element);
+  };
+
+  const cardStyle = {
+    transform: CSS.Translate.toString(transform),
+    zIndex: isDragging ? 20 : undefined,
+    opacity: isDragging ? 0.82 : 1,
+  };
+  const isDropTarget = Boolean(activeDragCollectionId) && activeDragCollectionId !== id && isOver;
+
+  return (
+    <article
+      ref={setCombinedNodeRef}
+      style={cardStyle}
+      tabIndex={0}
+      role="link"
+      onClick={() => onOpenCollection(id)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenCollection(id);
+        }
+      }}
+      className={`flex aspect-square cursor-pointer flex-col rounded-xl border bg-[#1a1728] p-3 text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70 ${
+        isDropTarget
+          ? "border-violet-300/80 bg-[#26203b]"
+          : "border-white/10 hover:border-violet-300/40 hover:bg-[#221f33]"
+      }`}
+      {...listeners}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="line-clamp-3 pr-2 text-lg font-extrabold leading-6 text-zinc-50">{name}</h2>
+        <button
+          type="button"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => onOpenCollectionMenu(event, id)}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-[#121025] text-sm text-zinc-300 transition hover:border-violet-300/45 hover:text-violet-100"
+          aria-label={`${optionsLabel} ${name}`}
+          title={optionsLabel}
+        >
+          ⋯
+        </button>
+      </div>
+
+      <div className="mt-3 space-y-1 text-sm">
+        <p className="font-medium text-cyan-200">{createdOnLabel}</p>
+        <p className="font-medium text-violet-200">{environmentsLabel}</p>
+        <p className="font-medium text-amber-200">{foldersLabel}</p>
+        <p className="font-medium text-emerald-200">{requestsLabel}</p>
+      </div>
+      <div className="mt-auto pt-3 text-xs font-medium text-violet-200/80">{openHintLabel}</div>
+    </article>
+  );
+};
+
 export default function Home() {
   const { t, formatDate } = useI18n();
   const router = useRouter();
@@ -70,8 +179,58 @@ export default function Home() {
   const [ioFeedback, setIoFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const collectionMenuRef = useRef<HTMLDivElement | null>(null);
+  const suppressCollectionOpenAfterDragRef = useRef(false);
   const [collectionMenu, setCollectionMenu] = useState<CollectionMenuState>(null);
   const [deleteCollectionTarget, setDeleteCollectionTarget] = useState<DeleteCollectionTarget>(null);
+  const [activeDragCollectionId, setActiveDragCollectionId] = useState<string | null>(null);
+  const collectionDndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+  );
+
+  const suppressCollectionOpenAfterDrag = () => {
+    suppressCollectionOpenAfterDragRef.current = true;
+    window.setTimeout(() => {
+      suppressCollectionOpenAfterDragRef.current = false;
+    }, 180);
+  };
+
+  const openCollectionFromCard = (collectionId: string) => {
+    if (suppressCollectionOpenAfterDragRef.current) {
+      return;
+    }
+
+    router.push(`/collections/${collectionId}`);
+  };
+
+  const handleCollectionDragStart = (event: DragStartEvent) => {
+    setActiveDragCollectionId(String(event.active.id));
+    suppressCollectionOpenAfterDrag();
+  };
+
+  const handleCollectionDragCancel = () => {
+    setActiveDragCollectionId(null);
+    suppressCollectionOpenAfterDrag();
+  };
+
+  const handleCollectionDragEnd = (event: DragEndEvent) => {
+    const sourceCollectionId = String(event.active.id);
+    const targetCollectionId = event.over?.id ? String(event.over.id) : null;
+
+    setActiveDragCollectionId(null);
+    suppressCollectionOpenAfterDrag();
+
+    if (!targetCollectionId || sourceCollectionId === targetCollectionId) {
+      return;
+    }
+
+    updateCollections((current) =>
+      reorderItemsById(current, sourceCollectionId, targetCollectionId),
+    );
+  };
 
   const showFeedback = (type: "success" | "error", message: string) => {
     setIoFeedback({ type, message });
@@ -409,64 +568,43 @@ export default function Home() {
           </div>
         )}
 
-        <section className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
-          {collections.length === 0 && (
-            <div className="col-span-full rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-sm text-zinc-300">
-              {t("home.none")}
-            </div>
-          )}
+        <DndContext
+          sensors={collectionDndSensors}
+          onDragStart={handleCollectionDragStart}
+          onDragCancel={handleCollectionDragCancel}
+          onDragEnd={handleCollectionDragEnd}
+        >
+          <section className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
+            {collections.length === 0 && (
+              <div className="col-span-full rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-sm text-zinc-300">
+                {t("home.none")}
+              </div>
+            )}
 
-          {collections.map((collection) => {
-            const requestCount = countRequestsInTree(collection.requestTree);
-            const folderCount = countFoldersInTree(collection.requestTree);
-            const environmentCount = collection.environments.length;
+            {collections.map((collection) => {
+              const requestCount = countRequestsInTree(collection.requestTree);
+              const folderCount = countFoldersInTree(collection.requestTree);
+              const environmentCount = collection.environments.length;
 
-            return (
-              <article
-                key={collection.id}
-                tabIndex={0}
-                role="link"
-                onClick={() => router.push(`/collections/${collection.id}`)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    router.push(`/collections/${collection.id}`);
-                  }
-                }}
-                className="flex aspect-square cursor-pointer flex-col rounded-xl border border-white/10 bg-[#1a1728] p-3 text-white transition hover:border-violet-300/40 hover:bg-[#221f33] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <h2 className="line-clamp-3 pr-2 text-lg font-extrabold leading-6 text-zinc-50">{collection.name}</h2>
-                  <button
-                    type="button"
-                    onClick={(event) => openCollectionMenu(event, collection.id)}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-[#121025] text-sm text-zinc-300 transition hover:border-violet-300/45 hover:text-violet-100"
-                    aria-label={`${t("home.options")} ${collection.name}`}
-                    title={t("home.options")}
-                  >
-                    ⋯
-                  </button>
-                </div>
-
-                <div className="mt-3 space-y-1 text-sm">
-                  <p className="font-medium text-cyan-200">
-                    {t("home.createdOn", { date: formatDate(collection.createdAt) })}
-                  </p>
-                  <p className="font-medium text-violet-200">
-                    {t("home.environments", { count: environmentCount })}
-                  </p>
-                  <p className="font-medium text-amber-200">
-                    {t("home.folders", { count: folderCount })}
-                  </p>
-                  <p className="font-medium text-emerald-200">
-                    {t("home.requests", { count: requestCount })}
-                  </p>
-                </div>
-                <div className="mt-auto pt-3 text-xs font-medium text-violet-200/80">{t("home.clickToOpen")}</div>
-              </article>
-            );
-          })}
-        </section>
+              return (
+                <DraggableCollectionCard
+                  key={collection.id}
+                  id={collection.id}
+                  name={collection.name}
+                  createdOnLabel={t("home.createdOn", { date: formatDate(collection.createdAt) })}
+                  environmentsLabel={t("home.environments", { count: environmentCount })}
+                  foldersLabel={t("home.folders", { count: folderCount })}
+                  requestsLabel={t("home.requests", { count: requestCount })}
+                  openHintLabel={t("home.clickToOpen")}
+                  optionsLabel={t("home.options")}
+                  activeDragCollectionId={activeDragCollectionId}
+                  onOpenCollection={openCollectionFromCard}
+                  onOpenCollectionMenu={openCollectionMenu}
+                />
+              );
+            })}
+          </section>
+        </DndContext>
       </div>
 
       {collectionMenu && selectedMenuCollection && (
