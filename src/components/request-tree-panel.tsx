@@ -789,6 +789,24 @@ export const RequestTreePanel = ({
     isSyncingDragSelectRef.current = false;
   }, [orderedNodeIds, selectedNodeIds]);
 
+  useEffect(() => {
+    const handlePointerDownOutsideTree = (event: PointerEvent) => {
+      const area = treeSurfaceRef.current;
+
+      if (!area || !(event.target instanceof Node) || area.contains(event.target)) {
+        return;
+      }
+
+      setSelectedNodeIds((current) => (current.length > 0 ? [] : current));
+    };
+
+    window.addEventListener("pointerdown", handlePointerDownOutsideTree);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDownOutsideTree);
+    };
+  }, []);
+
   const handleDragStart = (event: DragStartEvent) => {
     const activeNodeId = String(event.active.id);
     setActiveDragId(activeNodeId);
@@ -956,7 +974,7 @@ export const RequestTreePanel = ({
   };
 
   return (
-    <aside className="min-h-0 overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3">
+    <aside className="flex min-h-0 flex-col overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3">
       <div className="mb-3 flex items-center justify-between px-3">
         <h2 className="text-sm font-medium text-zinc-300">{t("requestTree.title")}</h2>
         <div className="flex items-center gap-1">
@@ -990,15 +1008,17 @@ export const RequestTreePanel = ({
       >
         <div
           ref={treeSurfaceRef}
-          className="relative mx-2 space-y-2 rounded-lg"
+          className="relative flex-1 w-full rounded-lg pl-5"
         >
-          {requestTree.length === 0 && (
-            <p className="rounded-lg border border-dashed border-white/15 p-3 text-xs text-zinc-400">
-              {t("requestTree.none")}
-            </p>
-          )}
+          <div className="min-h-full space-y-2 pr-2 pb-2">
+            {requestTree.length === 0 && (
+              <p className="rounded-lg border border-dashed border-white/15 p-3 text-xs text-zinc-400">
+                {t("requestTree.none")}
+              </p>
+            )}
 
-          {renderRequestTreeNodes(requestTree, null, 0)}
+            {renderRequestTreeNodes(requestTree, null, 0)}
+          </div>
         </div>
       </DndContext>
     </aside>
