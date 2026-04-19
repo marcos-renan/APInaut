@@ -110,3 +110,13 @@ button:not(:disabled):not(.cursor-col-resize):not(.cursor-row-resize):hover {
 .apinaut-group-drag-leader {
   animation: apinaut-group-leader-pulse 260ms ease-out 1;
 }
+
+.ds-selector-area {
+  pointer-events: none !important;
+  z-index: 2147483646 !important;
+}
+
+.ds-selector {
+  z-index: 2147483647 !important;
+  transform: translateZ(0);
+}
