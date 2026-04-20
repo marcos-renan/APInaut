@@ -13,7 +13,6 @@ import {
 } from "@/components/request-tree-panel-rows";
 import type { RequestMethodStyle } from "@/components/request-tree-panel.types";
 import {
-  ROOT_PARENT_TOKEN,
   createPositionDropId,
 } from "@/components/request-tree-panel.utils";
 import type { ApiRequest, RequestTreeNode } from "@/lib/collections";
