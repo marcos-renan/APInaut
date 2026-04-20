@@ -24,6 +24,25 @@ export type MultipartFormRow = {
 
 export type RequestBodyMode = "none" | "json" | "text" | "multipart";
 
+export type RequestExecutionResult = {
+  status: number;
+  statusText: string;
+  durationMs: number;
+  headers: Record<string, string>;
+  cookies: string[];
+  body: string;
+  finalUrl: string;
+  requestBytes: number;
+  responseBytes: number;
+  totalBytes: number;
+};
+
+export type RequestResponseState = {
+  result: RequestExecutionResult | null;
+  requestError: string | null;
+  scriptError: string | null;
+};
+
 export type ApiRequest = {
   id: string;
   name: string;
@@ -80,6 +99,7 @@ export type Collection = {
   environments: Environment[];
   activeEnvironmentId: string | null;
   lastActiveRequestId: string | null;
+  requestResponsesByRequestId: Record<string, RequestResponseState>;
 };
 
 export type GlobalEnvironmentsState = {

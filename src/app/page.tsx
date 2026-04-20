@@ -489,6 +489,7 @@ export default function Home() {
         environments: [],
         activeEnvironmentId: null,
         lastActiveRequestId: null,
+        requestResponsesByRequestId: {},
       },
       ...collections,
     ]);

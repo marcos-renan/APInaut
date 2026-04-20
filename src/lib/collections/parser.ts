@@ -492,6 +492,7 @@ const normalizePostmanCollection = (value: unknown): Collection | null => {
     environments,
     activeEnvironmentId: environments[0]?.id ?? null,
     lastActiveRequestId: null,
+    requestResponsesByRequestId: {},
   };
 };
 
@@ -912,6 +913,7 @@ const normalizeInsomniaCollection = (value: unknown): Collection | null => {
     environments,
     activeEnvironmentId,
     lastActiveRequestId: null,
+    requestResponsesByRequestId: {},
   };
 };
 

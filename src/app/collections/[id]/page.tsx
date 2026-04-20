@@ -31,6 +31,8 @@ import {
   EnvironmentVariable,
   GlobalEnvironmentsState,
   MultipartFormRow,
+  RequestExecutionResult,
+  RequestResponseState,
   RequestTreeNode,
   KeyValueRow,
   getCollectionsServerSnapshot,
@@ -94,25 +96,6 @@ type ScriptTab = "pre-request" | "after-response";
 type ResponseTab = "body" | "headers" | "cookies";
 type ResponseBodyView = "code" | "web";
 
-type RequestExecutionResult = {
-  status: number;
-  statusText: string;
-  durationMs: number;
-  headers: Record<string, string>;
-  cookies: string[];
-  body: string;
-  finalUrl: string;
-  requestBytes: number;
-  responseBytes: number;
-  totalBytes: number;
-};
-
-type RequestResponseState = {
-  result: RequestExecutionResult | null;
-  requestError: string | null;
-  scriptError: string | null;
-};
-
 type RequestContextMenuState = {
   nodeId: string;
   x: number;
@@ -124,6 +107,7 @@ const EMPTY_REQUEST_RESPONSE_STATE: RequestResponseState = {
   requestError: null,
   scriptError: null,
 };
+const EMPTY_RESPONSE_STATE_BY_REQUEST_ID: Record<string, RequestResponseState> = {};
 
 export default function CollectionDetailsPage() {
   const { t, locale } = useI18n();
@@ -191,6 +175,8 @@ export default function CollectionDetailsPage() {
   const deleteGlobalEnvironmentConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteGlobalEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydratedResponseStateCollectionIdRef = useRef<string | null>(null);
+  const skipPersistResponseStateRef = useRef(false);
 
   const activeResponseState = useMemo<RequestResponseState>(() => {
     if (!activeRequestId) {
@@ -420,6 +406,66 @@ export default function CollectionDetailsPage() {
     () => globalEnvironmentState.environments ?? [],
     [globalEnvironmentState],
   );
+  const collectionResponseStateByRequestId =
+    collection?.requestResponsesByRequestId ?? EMPTY_RESPONSE_STATE_BY_REQUEST_ID;
+  const collectionResponseStateSerialized = useMemo(
+    () => JSON.stringify(collectionResponseStateByRequestId),
+    [collectionResponseStateByRequestId],
+  );
+  const localResponseStateSerialized = useMemo(
+    () => JSON.stringify(responseStateByRequestId),
+    [responseStateByRequestId],
+  );
+
+  useEffect(() => {
+    if (!collection) {
+      hydratedResponseStateCollectionIdRef.current = null;
+      skipPersistResponseStateRef.current = true;
+      setResponseStateByRequestId(EMPTY_RESPONSE_STATE_BY_REQUEST_ID);
+      return;
+    }
+
+    if (hydratedResponseStateCollectionIdRef.current === collection.id) {
+      return;
+    }
+
+    hydratedResponseStateCollectionIdRef.current = collection.id;
+    skipPersistResponseStateRef.current = true;
+    setResponseStateByRequestId(collectionResponseStateByRequestId);
+  }, [collection, collectionResponseStateByRequestId]);
+
+  useEffect(() => {
+    if (!collectionId || !collection) {
+      return;
+    }
+
+    if (skipPersistResponseStateRef.current) {
+      skipPersistResponseStateRef.current = false;
+      return;
+    }
+
+    if (collectionResponseStateSerialized === localResponseStateSerialized) {
+      return;
+    }
+
+    updateCollections((current) =>
+      current.map((item) =>
+        item.id === collectionId
+          ? {
+              ...item,
+              requestResponsesByRequestId: responseStateByRequestId,
+            }
+          : item,
+      ),
+    );
+  }, [
+    collection,
+    collectionId,
+    collectionResponseStateSerialized,
+    localResponseStateSerialized,
+    responseStateByRequestId,
+  ]);
+
   const activeEnvironment = useMemo(
     () =>
       collection?.activeEnvironmentId

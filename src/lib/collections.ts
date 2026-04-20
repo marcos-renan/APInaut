@@ -12,6 +12,8 @@ export type {
   MultipartFormRow,
   MultipartFormValueType,
   RequestBodyMode,
+  RequestExecutionResult,
+  RequestResponseState,
   RequestTreeFolderNode,
   RequestTreeNode,
   RequestTreeRequestNode,

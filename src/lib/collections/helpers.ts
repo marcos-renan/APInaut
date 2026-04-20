@@ -7,6 +7,8 @@ import type {
   KeyValueRow,
   MultipartFormRow,
   MultipartFormValueType,
+  RequestExecutionResult,
+  RequestResponseState,
   RequestTreeNode,
 } from "./types";
 
@@ -196,6 +198,93 @@ export const normalizeTree = (value: unknown): RequestTreeNode[] => {
     .filter((entry): entry is RequestTreeNode => entry !== null);
 };
 
+const normalizeRequestExecutionResult = (value: unknown): RequestExecutionResult | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<RequestExecutionResult>;
+
+  if (
+    typeof candidate.status !== "number" ||
+    typeof candidate.statusText !== "string" ||
+    typeof candidate.durationMs !== "number" ||
+    !candidate.headers ||
+    typeof candidate.headers !== "object" ||
+    !Array.isArray(candidate.cookies) ||
+    typeof candidate.body !== "string" ||
+    typeof candidate.finalUrl !== "string" ||
+    typeof candidate.requestBytes !== "number" ||
+    typeof candidate.responseBytes !== "number" ||
+    typeof candidate.totalBytes !== "number"
+  ) {
+    return null;
+  }
+
+  const normalizedHeaders: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(candidate.headers as Record<string, unknown>)) {
+    if (typeof rawValue === "string") {
+      normalizedHeaders[key] = rawValue;
+    }
+  }
+
+  return {
+    status: candidate.status,
+    statusText: candidate.statusText,
+    durationMs: candidate.durationMs,
+    headers: normalizedHeaders,
+    cookies: candidate.cookies.filter((cookie): cookie is string => typeof cookie === "string"),
+    body: candidate.body,
+    finalUrl: candidate.finalUrl,
+    requestBytes: candidate.requestBytes,
+    responseBytes: candidate.responseBytes,
+    totalBytes: candidate.totalBytes,
+  };
+};
+
+const normalizeRequestResponseState = (value: unknown): RequestResponseState | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<RequestResponseState>;
+  const result = normalizeRequestExecutionResult(candidate.result);
+  const requestError = typeof candidate.requestError === "string" ? candidate.requestError : null;
+  const scriptError = typeof candidate.scriptError === "string" ? candidate.scriptError : null;
+
+  return {
+    result,
+    requestError,
+    scriptError,
+  };
+};
+
+const normalizeRequestResponsesByRequestId = (
+  value: unknown,
+): Record<string, RequestResponseState> => {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const normalized: Record<string, RequestResponseState> = {};
+
+  for (const [requestId, rawResponseState] of Object.entries(value as Record<string, unknown>)) {
+    if (!requestId.trim()) {
+      continue;
+    }
+
+    const parsed = normalizeRequestResponseState(rawResponseState);
+
+    if (!parsed) {
+      continue;
+    }
+
+    normalized[requestId] = parsed;
+  }
+
+  return normalized;
+};
+
 export const normalizeCollection = (value: unknown): Collection | null => {
   const candidate = typeof value === "object" && value ? (value as Record<string, unknown>) : null;
 
@@ -223,6 +312,9 @@ export const normalizeCollection = (value: unknown): Collection | null => {
       typeof candidate.lastActiveRequestId === "string" || candidate.lastActiveRequestId === null
         ? candidate.lastActiveRequestId
         : null,
+    requestResponsesByRequestId: normalizeRequestResponsesByRequestId(
+      candidate.requestResponsesByRequestId,
+    ),
   };
 };
 
