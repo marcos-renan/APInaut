@@ -107,11 +107,23 @@ type RequestExecutionResult = {
   totalBytes: number;
 };
 
+type RequestResponseState = {
+  result: RequestExecutionResult | null;
+  requestError: string | null;
+  scriptError: string | null;
+};
+
 type RequestContextMenuState = {
   nodeId: string;
   x: number;
   y: number;
 } | null;
+
+const EMPTY_REQUEST_RESPONSE_STATE: RequestResponseState = {
+  result: null,
+  requestError: null,
+  scriptError: null,
+};
 
 export default function CollectionDetailsPage() {
   const { t, locale } = useI18n();
@@ -144,9 +156,9 @@ export default function CollectionDetailsPage() {
   const [responseTab, setResponseTab] = useState<ResponseTab>("body");
   const [responseBodyView, setResponseBodyView] = useState<ResponseBodyView>("code");
   const [isSending, setIsSending] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
-  const [scriptError, setScriptError] = useState<string | null>(null);
-  const [result, setResult] = useState<RequestExecutionResult | null>(null);
+  const [responseStateByRequestId, setResponseStateByRequestId] = useState<
+    Record<string, RequestResponseState>
+  >({});
   const [isEnvironmentModalOpen, setIsEnvironmentModalOpen] = useState(false);
   const [environmentModalScope, setEnvironmentModalScope] = useState<"local" | "global">("local");
   const [newEnvironmentName, setNewEnvironmentName] = useState("");
@@ -179,6 +191,66 @@ export default function CollectionDetailsPage() {
   const deleteGlobalEnvironmentConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteGlobalEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const activeResponseState = useMemo<RequestResponseState>(() => {
+    if (!activeRequestId) {
+      return EMPTY_REQUEST_RESPONSE_STATE;
+    }
+
+    return responseStateByRequestId[activeRequestId] ?? EMPTY_REQUEST_RESPONSE_STATE;
+  }, [activeRequestId, responseStateByRequestId]);
+
+  const updateResponseStateForRequest = (
+    requestId: string | null,
+    updater: (current: RequestResponseState) => RequestResponseState,
+  ) => {
+    if (!requestId) {
+      return;
+    }
+
+    setResponseStateByRequestId((current) => {
+      const currentState = current[requestId] ?? EMPTY_REQUEST_RESPONSE_STATE;
+      const nextState = updater(currentState);
+
+      if (
+        currentState.result === nextState.result &&
+        currentState.requestError === nextState.requestError &&
+        currentState.scriptError === nextState.scriptError
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [requestId]: nextState,
+      };
+    });
+  };
+
+  const clearResponseStateForRequest = (requestId: string | null) => {
+    updateResponseStateForRequest(requestId, () => EMPTY_REQUEST_RESPONSE_STATE);
+  };
+
+  const setRequestErrorForRequest = (requestId: string | null, requestError: string | null) => {
+    updateResponseStateForRequest(requestId, (current) => ({
+      ...current,
+      requestError,
+    }));
+  };
+
+  const setScriptErrorForRequest = (requestId: string | null, scriptError: string | null) => {
+    updateResponseStateForRequest(requestId, (current) => ({
+      ...current,
+      scriptError,
+    }));
+  };
+
+  const setResultForRequest = (requestId: string | null, result: RequestExecutionResult | null) => {
+    updateResponseStateForRequest(requestId, (current) => ({
+      ...current,
+      result,
+    }));
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -874,7 +946,7 @@ export default function CollectionDetailsPage() {
         ),
       }));
     } catch {
-      setRequestError(t("collection.fileLoadError"));
+      setRequestErrorForRequest(activeRequestId, t("collection.fileLoadError"));
       setResponseTab("body");
     }
   };
@@ -889,9 +961,7 @@ export default function CollectionDetailsPage() {
     setEditingFolderId(null);
     setEditingFolderName("");
     setRequestContextMenu(null);
-    setResult(null);
-    setRequestError(null);
-    setScriptError(null);
+    clearResponseStateForRequest(newRequestNode.id);
   };
 
   const createRequestInFolder = (folderId: string) => {
@@ -917,9 +987,7 @@ export default function CollectionDetailsPage() {
     setEditingFolderId(null);
     setEditingFolderName("");
     setRequestContextMenu(null);
-    setResult(null);
-    setRequestError(null);
-    setScriptError(null);
+    clearResponseStateForRequest(newRequestNode.id);
   };
 
   const createFolder = () => {
@@ -1331,9 +1399,6 @@ export default function CollectionDetailsPage() {
     setRequestContextMenu(null);
     setEditingFolderId(null);
     setEditingFolderName("");
-    setResult(null);
-    setRequestError(null);
-    setScriptError(null);
     setUrlPreviewCopied(false);
   };
 
@@ -1425,9 +1490,26 @@ export default function CollectionDetailsPage() {
 
     if (activeRequestId && hasRequestInTree([removedNode], activeRequestId)) {
       setActiveRequestAndPersist(null);
-      setResult(null);
-      setRequestError(null);
-      setScriptError(null);
+    }
+
+    const collectRequestIds = (node: RequestTreeNode): string[] =>
+      node.type === "request" ? [node.id] : node.children.flatMap(collectRequestIds);
+    const removedRequestIds = collectRequestIds(removedNode);
+
+    if (removedRequestIds.length > 0) {
+      setResponseStateByRequestId((current) => {
+        let changed = false;
+        const next = { ...current };
+
+        for (const requestId of removedRequestIds) {
+          if (requestId in next) {
+            delete next[requestId];
+            changed = true;
+          }
+        }
+
+        return changed ? next : current;
+      });
     }
 
     const removed = removedNode;
@@ -1476,9 +1558,9 @@ export default function CollectionDetailsPage() {
     secondsDisplay,
     transferDisplay,
   } = useResponseState({
-    result,
-    requestError,
-    scriptError,
+    result: activeResponseState.result,
+    requestError: activeResponseState.requestError,
+    scriptError: activeResponseState.scriptError,
     responseTab,
   });
 
@@ -1487,9 +1569,10 @@ export default function CollectionDetailsPage() {
       return;
     }
 
+    const targetRequestId = activeRequest.id;
     setIsSending(true);
-    setRequestError(null);
-    setScriptError(null);
+    setRequestErrorForRequest(targetRequestId, null);
+    setScriptErrorForRequest(targetRequestId, null);
     const pendingEnvironmentChanges = new Map<string, string | null>();
     const pendingGlobalEnvironmentChanges = new Map<string, string | null>();
     const runtimeLocalVariables: Record<string, string> = { ...activeLocalTemplateVariables };
@@ -1844,7 +1927,7 @@ export default function CollectionDetailsPage() {
         runUserScript(resolvedRequest.preRequestScript, buildScriptBindings(null));
       } catch (error) {
         const message = error instanceof Error ? error.message : t("collection.preRequestScriptError");
-        setScriptError(message);
+        setScriptErrorForRequest(targetRequestId, message);
       }
 
       if (payload.method === "GET") {
@@ -1867,8 +1950,8 @@ export default function CollectionDetailsPage() {
         | { ok: false; error: string };
 
       if (!data.ok) {
-        setRequestError(data.error);
-        setResult(null);
+        setRequestErrorForRequest(targetRequestId, data.error);
+        setResultForRequest(targetRequestId, null);
         setResponseTab("body");
         return;
       }
@@ -1879,15 +1962,15 @@ export default function CollectionDetailsPage() {
         runUserScript(resolvedRequest.afterResponseScript, buildScriptBindings(resultPayload));
       } catch (error) {
         const message = error instanceof Error ? error.message : t("collection.afterResponseScriptError");
-        setScriptError(message);
+        setScriptErrorForRequest(targetRequestId, message);
       }
 
-      setResult(resultPayload);
+      setResultForRequest(targetRequestId, resultPayload);
       setResponseTab("body");
     } catch (error) {
       const message = error instanceof Error ? error.message : t("collection.sendUnexpectedError");
-      setRequestError(message);
-      setResult(null);
+      setRequestErrorForRequest(targetRequestId, message);
+      setResultForRequest(targetRequestId, null);
       setResponseTab("body");
     } finally {
       persistEnvironmentChanges();
@@ -2086,8 +2169,8 @@ export default function CollectionDetailsPage() {
 
           <ResponsePanel
             {...{
-              requestError,
-              result,
+              requestError: activeResponseState.requestError,
+              result: activeResponseState.result,
               hasSuccessfulResponse,
               statusDisplay,
               secondsDisplay,
