@@ -7,6 +7,10 @@ import { rcedit } from "rcedit";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
+const RCEDIT_MAX_ATTEMPTS = 6;
+const RCEDIT_RETRY_DELAY_MS = 1200;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const readAppVersion = async () => {
   const packagePath = path.join(projectRoot, "package.json");
@@ -41,6 +45,57 @@ const run = (command, args, env = {}) =>
     });
   });
 
+const runBestEffort = async (command, args) => {
+  try {
+    await run(command, args);
+  } catch {
+    // intentionally ignored: used only to unblock file locks in Windows
+  }
+};
+
+const ensureReadableFile = async (filePath) => {
+  try {
+    await fs.access(filePath);
+  } catch {
+    throw new Error(`Arquivo nao encontrado: ${filePath}`);
+  }
+};
+
+const applyRceditWithRetry = async (exePath, iconPath, numericVersion) => {
+  await ensureReadableFile(exePath);
+  await ensureReadableFile(iconPath);
+
+  for (let attempt = 1; attempt <= RCEDIT_MAX_ATTEMPTS; attempt += 1) {
+    // Remove atributo read-only e encerra processos residuais que podem manter lock no .exe.
+    await runBestEffort("attrib", ["-R", exePath]);
+    await runBestEffort("taskkill", ["/IM", "APInaut.exe", "/T", "/F"]);
+    await runBestEffort("taskkill", ["/IM", "electron.exe", "/T", "/F"]);
+
+    try {
+      await rcedit(exePath, {
+        icon: iconPath,
+        "product-version": numericVersion,
+        "file-version": `${numericVersion}.0`,
+        "version-string": {
+          CompanyName: "Marcos Renan",
+          FileDescription: "APInaut",
+          ProductName: "APInaut",
+          OriginalFilename: "APInaut.exe",
+          InternalName: "APInaut",
+        },
+      });
+      return;
+    } catch (error) {
+      if (attempt >= RCEDIT_MAX_ATTEMPTS) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Falha ao aplicar icone/metadados no executavel: ${message}`);
+      }
+
+      await sleep(RCEDIT_RETRY_DELAY_MS * attempt);
+    }
+  }
+};
+
 const main = async () => {
   if (process.platform !== "win32") {
     throw new Error("O script dist-win.mjs deve ser executado no Windows.");
@@ -59,18 +114,7 @@ const main = async () => {
     { CSC_IDENTITY_AUTO_DISCOVERY: "false" },
   );
 
-  await rcedit(exePath, {
-    icon: iconPath,
-    "product-version": numericVersion,
-    "file-version": `${numericVersion}.0`,
-    "version-string": {
-      CompanyName: "Marcos Renan",
-      FileDescription: "APInaut",
-      ProductName: "APInaut",
-      OriginalFilename: "APInaut.exe",
-      InternalName: "APInaut",
-    },
-  });
+  await applyRceditWithRetry(exePath, iconPath, numericVersion);
 
   await run(
     "npx",
