@@ -12,6 +12,7 @@ import { METHOD_OPTIONS, METHOD_STYLE_MAP } from "@/lib/request-page-helpers";
 
 type RequestTab = "params" | "body" | "auth" | "headers" | "script";
 type ScriptTab = "pre-request" | "after-response";
+const TEMPLATE_TOKEN_IN_VALUE_REGEX = /\{\{\s*[^}]+\s*\}\}/;
 
 type RequestEditorPanelProps = Record<string, any>;
 
@@ -45,6 +46,9 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
     scriptTab,
     setScriptTab,
   } = props;
+
+  const bearerHasTemplateToken = TEMPLATE_TOKEN_IN_VALUE_REGEX.test(activeRequest?.bearerToken ?? "");
+  const basicPasswordHasTemplateToken = TEMPLATE_TOKEN_IN_VALUE_REGEX.test(activeRequest?.basicPassword ?? "");
 
   return (
     <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] px-0 py-3">
@@ -282,7 +286,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                       allowOverflowVisible
                       enableTemplateAutocomplete
                       templateVariables={templateVariableOptions}
-                      concealText={!showBearerToken}
+                      concealText={!showBearerToken && !bearerHasTemplateToken}
                       height={40}
                       className="h-10 min-w-0 [&_.cm-content]:pr-10 [&_.cm-line]:pr-10"
                       placeholder="Token"
@@ -336,7 +340,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                         allowOverflowVisible
                         enableTemplateAutocomplete
                         templateVariables={templateVariableOptions}
-                        concealText={!showBasicPassword}
+                        concealText={!showBasicPassword && !basicPasswordHasTemplateToken}
                         height={40}
                         className="h-10 min-w-0 [&_.cm-content]:pr-10 [&_.cm-line]:pr-10"
                         placeholder="Password"
