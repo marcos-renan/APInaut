@@ -10,6 +10,7 @@ export const RequestContextMenu = ({
   requestContextMenuRef,
   createRequestInFolder,
   createFolderInFolder,
+  duplicateRequest,
   startEditingRequestName,
   startEditingFolderName,
   deleteNode,
@@ -46,6 +47,15 @@ export const RequestContextMenu = ({
             {t("requestMenu.newFolderHere")}
           </button>
         </>
+      )}
+      {requestContextMenuTargetNode.type === "request" && (
+        <button
+          type="button"
+          onClick={() => duplicateRequest(requestContextMenuTargetNode.id)}
+          className="w-full rounded-md px-3 py-2 text-left text-sm text-violet-100 transition hover:bg-violet-500/20"
+        >
+          {t("requestMenu.duplicateRequest")}
+        </button>
       )}
       <button
         type="button"

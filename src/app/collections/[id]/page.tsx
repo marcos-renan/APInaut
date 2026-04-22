@@ -1214,6 +1214,95 @@ export default function CollectionDetailsPage() {
     clearResponseStateForRequest(newRequestNode.id);
   };
 
+  const duplicateRequest = (requestId: string) => {
+    const sourceRequest = findRequestById(requestTree, requestId);
+
+    if (!sourceRequest) {
+      return;
+    }
+
+    const duplicatedRequestId = crypto.randomUUID();
+    const duplicatedRequest: ApiRequest = {
+      ...sourceRequest,
+      id: duplicatedRequestId,
+      params: sourceRequest.params.map((row) => ({
+        ...row,
+        id: crypto.randomUUID(),
+      })),
+      headers: sourceRequest.headers.map((row) => ({
+        ...row,
+        id: crypto.randomUUID(),
+      })),
+      bodyForm: sourceRequest.bodyForm.map((row) => ({
+        ...row,
+        id: crypto.randomUUID(),
+      })),
+    };
+    const duplicatedNode: RequestTreeNode = {
+      id: duplicatedRequestId,
+      type: "request",
+      request: duplicatedRequest,
+    };
+
+    const insertAfterRequest = (
+      nodes: RequestTreeNode[],
+    ): { tree: RequestTreeNode[]; inserted: boolean } => {
+      let inserted = false;
+      const nextNodes: RequestTreeNode[] = [];
+
+      for (const node of nodes) {
+        if (node.type === "request") {
+          nextNodes.push(node);
+
+          if (node.id === requestId) {
+            nextNodes.push(duplicatedNode);
+            inserted = true;
+          }
+
+          continue;
+        }
+
+        const nested = insertAfterRequest(node.children);
+
+        if (nested.inserted) {
+          inserted = true;
+          nextNodes.push({
+            ...node,
+            children: nested.tree,
+          });
+          continue;
+        }
+
+        nextNodes.push(node);
+      }
+
+      return {
+        tree: nextNodes,
+        inserted,
+      };
+    };
+
+    let inserted = false;
+
+    updateCollectionTree((tree) => {
+      const next = insertAfterRequest(tree);
+      inserted = next.inserted;
+      return next.inserted ? next.tree : tree;
+    });
+
+    if (!inserted) {
+      return;
+    }
+
+    setActiveRequestAndPersist(duplicatedRequestId);
+    setEditingRequestId(null);
+    setEditingRequestName("");
+    setEditingFolderId(null);
+    setEditingFolderName("");
+    setRequestContextMenu(null);
+    clearResponseStateForRequest(duplicatedRequestId);
+  };
+
   const createFolder = () => {
     const folderNode = createFolderNode("New Folder");
 
@@ -1627,22 +1716,22 @@ export default function CollectionDetailsPage() {
   };
 
   const closeRequestTab = (requestId: string) => {
-    setOpenRequestTabIds((current) => {
-      const index = current.indexOf(requestId);
+    const currentTabs = openRequestTabIds;
+    const index = currentTabs.indexOf(requestId);
 
-      if (index < 0) {
-        return current;
-      }
+    if (index < 0) {
+      setRequestContextMenu(null);
+      return;
+    }
 
-      const next = current.filter((entry) => entry !== requestId);
+    const nextTabs = currentTabs.filter((entry) => entry !== requestId);
+    setOpenRequestTabIds(nextTabs);
 
-      if (activeRequestId === requestId) {
-        const fallbackRequestId = next[index] ?? next[index - 1] ?? null;
-        setActiveRequestAndPersist(fallbackRequestId);
-      }
+    if (activeRequestId === requestId) {
+      const fallbackRequestId = nextTabs[index] ?? nextTabs[index - 1] ?? null;
+      setActiveRequestAndPersist(fallbackRequestId);
+    }
 
-      return next;
-    });
     setRequestContextMenu(null);
   };
 
@@ -2551,6 +2640,7 @@ export default function CollectionDetailsPage() {
           requestContextMenuRef,
           createRequestInFolder,
           createFolderInFolder,
+          duplicateRequest,
           startEditingRequestName,
           startEditingFolderName,
           deleteNode,

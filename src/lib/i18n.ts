@@ -91,6 +91,7 @@ export type TranslationKey =
   | "requestTree.requestNamePlaceholder"
   | "requestMenu.newRequestHere"
   | "requestMenu.newFolderHere"
+  | "requestMenu.duplicateRequest"
   | "editor.send"
   | "editor.sending"
   | "editor.sendRequest"
@@ -262,6 +263,7 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "requestTree.requestNamePlaceholder": "Nome da requisição",
     "requestMenu.newRequestHere": "Nova request aqui",
     "requestMenu.newFolderHere": "Nova pasta aqui",
+    "requestMenu.duplicateRequest": "Duplicar request",
     "editor.send": "Enviar",
     "editor.sending": "Enviando...",
     "editor.sendRequest": "Enviar requisição",
@@ -432,6 +434,7 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "requestTree.requestNamePlaceholder": "Request name",
     "requestMenu.newRequestHere": "New request here",
     "requestMenu.newFolderHere": "New folder here",
+    "requestMenu.duplicateRequest": "Duplicate request",
     "editor.send": "Send",
     "editor.sending": "Sending...",
     "editor.sendRequest": "Send request",
@@ -602,6 +605,7 @@ const spanishOverrides: Partial<Record<TranslationKey, string>> = {
   "requestTree.requestNamePlaceholder": "Nombre de la request",
   "requestMenu.newRequestHere": "Nueva request aquí",
   "requestMenu.newFolderHere": "Nueva carpeta aquí",
+  "requestMenu.duplicateRequest": "Duplicar request",
   "editor.send": "Enviar",
   "editor.sending": "Enviando...",
   "editor.sendRequest": "Enviar request",
