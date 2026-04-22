@@ -1,36 +1,192 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# APInaut
 
-## Getting Started
+Desktop API client built with Next.js + Electron.
 
-First, run the development server:
+Repository:
+
+```bash
+https://github.com/marcos-renan/APInaut.git
+```
+
+---
+
+## Português (Brasil)
+
+### 1) Clonar o repositório
+
+```bash
+git clone https://github.com/marcos-renan/APInaut.git
+cd APInaut
+```
+
+### 2) Instalar dependências
+
+```bash
+npm install
+```
+
+### 3) Rodar scripts
+
+Desenvolvimento (web + electron):
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Somente web:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run dev:web
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Build do projeto:
 
-## Learn More
+```bash
+npm run build
+```
 
-To learn more about Next.js, take a look at the following resources:
+Rodar app desktop em produção local:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run start:electron
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Distribuição Windows:
 
-## Deploy on Vercel
+```bash
+npm run dist:win
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Distribuição Linux `.deb`:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run dist:linux:deb
+```
+
+Distribuição Linux AppImage:
+
+```bash
+npm run dist:linux:appimage
+```
+
+---
+
+## English (USA)
+
+### 1) Clone repository
+
+```bash
+git clone https://github.com/marcos-renan/APInaut.git
+cd APInaut
+```
+
+### 2) Install dependencies
+
+```bash
+npm install
+```
+
+### 3) Run scripts
+
+Development (web + electron):
+
+```bash
+npm run dev
+```
+
+Web only:
+
+```bash
+npm run dev:web
+```
+
+Project build:
+
+```bash
+npm run build
+```
+
+Run desktop app in local production mode:
+
+```bash
+npm run start:electron
+```
+
+Windows distribution:
+
+```bash
+npm run dist:win
+```
+
+Linux `.deb` distribution:
+
+```bash
+npm run dist:linux:deb
+```
+
+Linux AppImage distribution:
+
+```bash
+npm run dist:linux:appimage
+```
+
+---
+
+## Español (ES)
+
+### 1) Clonar repositorio
+
+```bash
+git clone https://github.com/marcos-renan/APInaut.git
+cd APInaut
+```
+
+### 2) Instalar dependencias
+
+```bash
+npm install
+```
+
+### 3) Ejecutar scripts
+
+Desarrollo (web + electron):
+
+```bash
+npm run dev
+```
+
+Solo web:
+
+```bash
+npm run dev:web
+```
+
+Build del proyecto:
+
+```bash
+npm run build
+```
+
+Ejecutar app desktop en producción local:
+
+```bash
+npm run start:electron
+```
+
+Distribución para Windows:
+
+```bash
+npm run dist:win
+```
+
+Distribución Linux `.deb`:
+
+```bash
+npm run dist:linux:deb
+```
+
+Distribución Linux AppImage:
+
+```bash
+npm run dist:linux:appimage
+```
