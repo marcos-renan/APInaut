@@ -63,6 +63,7 @@ export type TranslationKey =
   | "collection.notFound.title"
   | "collection.notFound.description"
   | "collection.back"
+  | "collection.noLocal"
   | "collection.noEnvironment"
   | "collection.noGlobal"
   | "collection.localPrefix"
@@ -230,6 +231,7 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "collection.notFound.title": "Coleção não encontrada",
     "collection.notFound.description": "Essa coleção não existe mais ou foi removida do armazenamento local.",
     "collection.back": "Voltar para coleções",
+    "collection.noLocal": "Sem local",
     "collection.noEnvironment": "Sem ambiente",
     "collection.noGlobal": "Sem global",
     "collection.localPrefix": "Local: {name}",
@@ -396,6 +398,7 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "collection.notFound.title": "Collection not found",
     "collection.notFound.description": "This collection no longer exists or was removed from local storage.",
     "collection.back": "Back to collections",
+    "collection.noLocal": "No local",
     "collection.noEnvironment": "No environment",
     "collection.noGlobal": "No global",
     "collection.localPrefix": "Local: {name}",
@@ -562,6 +565,7 @@ const spanishOverrides: Partial<Record<TranslationKey, string>> = {
   "collection.notFound.title": "Colección no encontrada",
   "collection.notFound.description": "Esta colección ya no existe o fue eliminada del almacenamiento local.",
   "collection.back": "Volver a colecciones",
+  "collection.noLocal": "Sin local",
   "collection.noEnvironment": "Sin entorno",
   "collection.noGlobal": "Sin global",
   "collection.localPrefix": "Local: {name}",

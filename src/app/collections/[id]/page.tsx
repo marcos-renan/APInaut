@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   ArrowBigLeft,
+  X,
 } from "lucide-react";
 import { EnvironmentModal } from "@/components/environment-modal";
 import { useI18n } from "@/components/language-provider";
@@ -135,6 +136,7 @@ export default function CollectionDetailsPage() {
   );
 
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [openRequestTabIds, setOpenRequestTabIds] = useState<string[]>([]);
   const [requestTab, setRequestTab] = useState<RequestTab>("params");
   const [scriptTab, setScriptTab] = useState<ScriptTab>("pre-request");
   const [responseTab, setResponseTab] = useState<ResponseTab>("body");
@@ -175,6 +177,7 @@ export default function CollectionDetailsPage() {
   const deleteGlobalEnvironmentConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteGlobalEnvironmentVariableConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeCollectionIdRef = useRef<string | null>(null);
   const hydratedResponseStateCollectionIdRef = useRef<string | null>(null);
   const skipPersistResponseStateRef = useRef(false);
 
@@ -482,6 +485,51 @@ export default function CollectionDetailsPage() {
         : null,
     [globalEnvironmentState.activeEnvironmentId, globalEnvironments],
   );
+  const combinedEnvironmentSelectorValue = useMemo(
+    () =>
+      `summary:${collection?.activeEnvironmentId ?? "none"}|${
+        globalEnvironmentState.activeEnvironmentId ?? "none"
+      }`,
+    [collection?.activeEnvironmentId, globalEnvironmentState.activeEnvironmentId],
+  );
+  const combinedEnvironmentSelectorOptions = useMemo(() => {
+    const activeLocalLabel = activeEnvironment
+      ? activeEnvironment.name
+      : t("collection.noLocal");
+    const activeGlobalLabel = activeGlobalEnvironment
+      ? activeGlobalEnvironment.name
+      : t("collection.noGlobal");
+
+    return [
+      {
+        value: combinedEnvironmentSelectorValue,
+        label: `${activeLocalLabel} | ${activeGlobalLabel}`,
+      },
+      {
+        value: "local:none",
+        label: t("collection.noLocal"),
+      },
+      ...environments.map((environment) => ({
+        value: `local:${environment.id}`,
+        label: environment.name,
+      })),
+      {
+        value: "global:none",
+        label: t("collection.noGlobal"),
+      },
+      ...globalEnvironments.map((environment) => ({
+        value: `global:${environment.id}`,
+        label: environment.name,
+      })),
+    ];
+  }, [
+    activeEnvironment,
+    activeGlobalEnvironment,
+    combinedEnvironmentSelectorValue,
+    environments,
+    globalEnvironments,
+    t,
+  ]);
   const activeGlobalTemplateVariables = useMemo(() => {
     if (!activeGlobalEnvironment) {
       return {} as Record<string, string>;
@@ -569,6 +617,17 @@ export default function CollectionDetailsPage() {
       ...activeLocalTemplateVariables,
     };
   }, [activeGlobalTemplateVariables, activeLocalTemplateVariables]);
+
+  useEffect(() => {
+    const nextCollectionId = collection?.id ?? null;
+
+    if (activeCollectionIdRef.current === nextCollectionId) {
+      return;
+    }
+
+    activeCollectionIdRef.current = nextCollectionId;
+    setOpenRequestTabIds([]);
+  }, [collection?.id]);
 
   useEffect(() => {
     if (!isEnvironmentModalOpen) {
@@ -727,6 +786,44 @@ export default function CollectionDetailsPage() {
     () => findRequestById(requestTree, activeRequestId),
     [requestTree, activeRequestId],
   );
+  const openRequestTabs = useMemo(
+    () =>
+      openRequestTabIds
+        .map((requestId) => {
+          const requestNode = findRequestById(requestTree, requestId);
+
+          if (!requestNode) {
+            return null;
+          }
+
+          return {
+            id: requestId,
+            name: requestNode.name?.trim() || "Request",
+            method: requestNode.method,
+          };
+        })
+        .filter(
+          (entry): entry is { id: string; name: string; method: ApiRequest["method"] } => entry !== null,
+        ),
+    [openRequestTabIds, requestTree],
+  );
+
+  useEffect(() => {
+    if (!activeRequestId) {
+      return;
+    }
+
+    setOpenRequestTabIds((current) =>
+      current.includes(activeRequestId) ? current : [...current, activeRequestId],
+    );
+  }, [activeRequestId]);
+
+  useEffect(() => {
+    setOpenRequestTabIds((current) => {
+      const next = current.filter((requestId) => hasRequestInTree(requestTree, requestId));
+      return next.length === current.length ? current : next;
+    });
+  }, [requestTree]);
 
   const urlPreview = useMemo(() => {
     if (!activeRequest) {
@@ -1448,6 +1545,26 @@ export default function CollectionDetailsPage() {
     setUrlPreviewCopied(false);
   };
 
+  const closeRequestTab = (requestId: string) => {
+    setOpenRequestTabIds((current) => {
+      const index = current.indexOf(requestId);
+
+      if (index < 0) {
+        return current;
+      }
+
+      const next = current.filter((entry) => entry !== requestId);
+
+      if (activeRequestId === requestId) {
+        const fallbackRequestId = next[index] ?? next[index - 1] ?? null;
+        setActiveRequestAndPersist(fallbackRequestId);
+      }
+
+      return next;
+    });
+    setRequestContextMenu(null);
+  };
+
   const startEditingRequestName = (requestId: string, currentName: string) => {
     setActiveRequestAndPersist(requestId);
     setRequestContextMenu(null);
@@ -1556,6 +1673,9 @@ export default function CollectionDetailsPage() {
 
         return changed ? next : current;
       });
+      setOpenRequestTabIds((current) =>
+        current.filter((requestId) => !removedRequestIds.includes(requestId)),
+      );
     }
 
     const removed = removedNode;
@@ -2088,34 +2208,62 @@ export default function CollectionDetailsPage() {
           </Link>
           <h1 className="text-xl font-semibold">{collection.name}</h1>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-2 min-w-0 flex-1 overflow-x-auto">
+            <div className="flex min-w-max items-center gap-1 pr-2">
+              {openRequestTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => selectRequest(tab.id)}
+                  className={`group inline-flex h-8 max-w-[220px] items-center gap-1 rounded-md border px-2 text-xs transition ${
+                    activeRequestId === tab.id
+                      ? "border-violet-300/70 bg-violet-500/35 text-violet-50"
+                      : "border-white/15 bg-[#1a1728] text-zinc-200 hover:border-violet-300/40 hover:bg-[#221f33]"
+                  }`}
+                  title={tab.name}
+                >
+                  <span
+                    className={`inline-flex h-4 shrink-0 items-center rounded border px-1 text-[9px] font-semibold leading-none ${METHOD_STYLE_MAP[tab.method].badge}`}
+                  >
+                    {tab.method}
+                  </span>
+                  <span className="truncate">{tab.name}</span>
+                  <span
+                    role="button"
+                    aria-label={t("common.close")}
+                    title={t("common.close")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeRequestTab(tab.id);
+                    }}
+                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-zinc-300 transition hover:bg-white/20 hover:text-white"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
             <StyledSelect
-              value={collection.activeEnvironmentId ?? ""}
-              onChange={(nextValue) => setActiveEnvironmentId(nextValue || null)}
-              options={[
-                { value: "", label: t("collection.noEnvironment") },
-                ...environments.map((environment) => ({
-                  value: environment.id,
-                  label: t("collection.localPrefix", { name: environment.name }),
-                })),
-              ]}
-              containerClassName="min-w-[180px]"
+              value={combinedEnvironmentSelectorValue}
+              onChange={(nextValue) => {
+                if (nextValue.startsWith("local:")) {
+                  const nextLocalId = nextValue.slice("local:".length);
+                  setActiveEnvironmentId(nextLocalId || null);
+                  return;
+                }
+
+                if (nextValue.startsWith("global:")) {
+                  const nextGlobalId = nextValue.slice("global:".length);
+                  setActiveGlobalEnvironmentId(nextGlobalId || null);
+                }
+              }}
+              options={combinedEnvironmentSelectorOptions}
+              containerClassName="min-w-[200px] max-w-[240px]"
               triggerClassName="h-8"
-              menuClassName="min-w-[180px]"
-            />
-            <StyledSelect
-              value={globalEnvironmentState.activeEnvironmentId ?? ""}
-              onChange={(nextValue) => setActiveGlobalEnvironmentId(nextValue || null)}
-              options={[
-                { value: "", label: t("collection.noGlobal") },
-                ...globalEnvironments.map((environment) => ({
-                  value: environment.id,
-                  label: t("collection.globalPrefix", { name: environment.name }),
-                })),
-              ]}
-              containerClassName="min-w-[180px]"
-              triggerClassName="h-8"
-              menuClassName="min-w-[180px]"
+              menuClassName="min-w-[220px]"
             />
             <button
               type="button"
