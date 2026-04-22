@@ -1,14 +1,6 @@
 # APInaut
 
-Desktop API client built with Next.js + Electron.
-
-Repository:
-
-```bash
-https://github.com/marcos-renan/APInaut.git
-```
-
----
+A minimalist API client focused on RESTful APIs, designed to be easy to use while offering everything you need.
 
 ## <img src="https://hatscripts.github.io/circle-flags/flags/us.svg" width="20" alt="United States" /> English (USA)
 
