@@ -41,6 +41,8 @@ import {
 export const RequestTreePanel = ({
   requestTree,
   activeRequestId,
+  centerOnRequestId,
+  centerOnRequestVersion,
   editingRequestId,
   editingRequestName,
   editingFolderId,
@@ -68,6 +70,7 @@ export const RequestTreePanel = ({
   const [draggedNodeIds, setDraggedNodeIds] = useState<string[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isRectangleSelecting, setIsRectangleSelecting] = useState(false);
+  const [pendingCenterRequestId, setPendingCenterRequestId] = useState<string | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const treeSurfaceRef = useRef<HTMLDivElement | null>(null);
   const lastSelectionActivationPointRef = useRef<{ time: number; x: number; y: number } | null>(null);
@@ -118,7 +121,15 @@ export const RequestTreePanel = ({
   }, [orderedNodeIds]);
 
   useEffect(() => {
-    if (!activeRequestId) {
+    if (!centerOnRequestId) {
+      return;
+    }
+
+    setPendingCenterRequestId(centerOnRequestId);
+  }, [centerOnRequestId, centerOnRequestVersion]);
+
+  useEffect(() => {
+    if (!pendingCenterRequestId) {
       return;
     }
 
@@ -128,21 +139,34 @@ export const RequestTreePanel = ({
         return;
       }
 
-      const activeRow = panel.querySelector<HTMLElement>(`[data-node-id="${activeRequestId}"]`);
-      if (!activeRow) {
+      const targetRow = panel.querySelector<HTMLElement>(`[data-node-id="${pendingCenterRequestId}"]`);
+      if (!targetRow) {
         return;
       }
 
-      activeRow.scrollIntoView({
-        block: "nearest",
-        inline: "nearest",
-      });
+      const panelRect = panel.getBoundingClientRect();
+      const rowRect = targetRow.getBoundingClientRect();
+      const currentScrollTop = panel.scrollTop;
+      const rowTopInsidePanel = rowRect.top - panelRect.top + currentScrollTop;
+      const rowCenterY = rowTopInsidePanel + rowRect.height / 2;
+      const targetScrollTop = rowCenterY - panel.clientHeight / 2;
+      const maxScrollTop = Math.max(0, panel.scrollHeight - panel.clientHeight);
+      const clampedScrollTop = Math.min(Math.max(targetScrollTop, 0), maxScrollTop);
+
+      if (Math.abs(clampedScrollTop - currentScrollTop) >= 1) {
+        panel.scrollTo({
+          top: clampedScrollTop,
+          behavior: "smooth",
+        });
+      }
+
+      setPendingCenterRequestId(null);
     });
 
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [activeRequestId, expandedFolderIds, requestTree]);
+  }, [pendingCenterRequestId, expandedFolderIds, requestTree]);
 
   const handleNodePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,

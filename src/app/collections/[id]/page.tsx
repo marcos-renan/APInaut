@@ -148,6 +148,8 @@ export default function CollectionDetailsPage() {
 
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [openRequestTabIds, setOpenRequestTabIds] = useState<string[]>([]);
+  const [centerTreeRequestId, setCenterTreeRequestId] = useState<string | null>(null);
+  const [centerTreeRequestVersion, setCenterTreeRequestVersion] = useState(0);
   const [requestSearchQuery, setRequestSearchQuery] = useState("");
   const [isRequestSearchOpen, setIsRequestSearchOpen] = useState(false);
   const [requestTab, setRequestTab] = useState<RequestTab>("params");
@@ -686,6 +688,8 @@ export default function CollectionDetailsPage() {
 
     activeCollectionIdRef.current = nextCollectionId;
     setOpenRequestTabIds([]);
+    setCenterTreeRequestId(null);
+    setCenterTreeRequestVersion(0);
     setRequestSearchQuery("");
     setIsRequestSearchOpen(false);
   }, [collection?.id]);
@@ -1727,6 +1731,12 @@ export default function CollectionDetailsPage() {
     setUrlPreviewCopied(false);
   };
 
+  const selectRequestFromTab = (requestId: string) => {
+    selectRequest(requestId);
+    setCenterTreeRequestId(requestId);
+    setCenterTreeRequestVersion((current) => current + 1);
+  };
+
   const closeRequestTab = (requestId: string) => {
     const currentTabs = openRequestTabIds;
     const index = currentTabs.indexOf(requestId);
@@ -2476,7 +2486,7 @@ export default function CollectionDetailsPage() {
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => selectRequest(tab.id)}
+                  onClick={() => selectRequestFromTab(tab.id)}
                   className={`group inline-flex h-8 max-w-[220px] items-center gap-1 rounded-md border px-2 text-xs transition ${
                     activeRequestId === tab.id
                       ? "border-violet-300/70 bg-violet-500/35 text-violet-50"
@@ -2546,6 +2556,8 @@ export default function CollectionDetailsPage() {
           <RequestTreePanel
             requestTree={requestTree}
             activeRequestId={activeRequestId}
+            centerOnRequestId={centerTreeRequestId}
+            centerOnRequestVersion={centerTreeRequestVersion}
             editingRequestId={editingRequestId}
             editingRequestName={editingRequestName}
             editingFolderId={editingFolderId}

@@ -16,6 +16,8 @@ export type RequestMethodStyle = {
 export type RequestTreePanelProps = {
   requestTree: RequestTreeNode[];
   activeRequestId: string | null;
+  centerOnRequestId: string | null;
+  centerOnRequestVersion: number;
   editingRequestId: string | null;
   editingRequestName: string;
   editingFolderId: string | null;
