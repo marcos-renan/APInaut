@@ -4,6 +4,7 @@ declare global {
   interface Window {
     apinautDesktop?: {
       isDesktop: boolean;
+      platform: string;
       minimize: () => void;
       toggleMaximize: () => void;
       close: () => void;

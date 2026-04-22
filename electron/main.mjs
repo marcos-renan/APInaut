@@ -411,13 +411,24 @@ const loadFallbackPage = async (window, startUrl) => {
 };
 
 const createMainWindow = async () => {
+  const isWindows = process.platform === "win32";
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 760,
     minHeight: 520,
     show: false,
-    frame: false,
+    frame: isWindows ? true : false,
+    titleBarStyle: isWindows ? "hidden" : "default",
+    titleBarOverlay:
+      isWindows
+        ? {
+            color: "#151225",
+            symbolColor: "#f5f3ff",
+            height: 44,
+          }
+        : false,
     title: "APInaut",
     icon: resolveWindowIconPath(),
     backgroundColor: "#09090b",

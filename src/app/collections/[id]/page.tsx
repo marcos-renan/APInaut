@@ -2492,7 +2492,7 @@ export default function CollectionDetailsPage() {
     <>
       {titlebarSearchHost &&
         createPortal(
-          <div ref={requestSearchRef} className="relative w-[360px] max-w-[42vw]">
+          <div ref={requestSearchRef} className="apinaut-titlebar-no-drag relative w-[360px] max-w-[42vw]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
             <input
               type="text"
