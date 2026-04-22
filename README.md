@@ -2,7 +2,7 @@
 
 A minimalist API client focused on RESTful APIs, designed to be easy to use while offering everything you need.
 
-## <img src="https://hatscripts.github.io/circle-flags/flags/us.svg" width="20" alt="United States" /> English (USA)
+## <img src="https://hatscripts.github.io/circle-flags/flags/us.svg" width="20" alt="United States" /> English - usa
 
 ### 1) Clone repository
 
@@ -63,7 +63,7 @@ npm run dist:linux:appimage
 
 ---
 
-## <img src="https://hatscripts.github.io/circle-flags/flags/br.svg" width="20" alt="Brasil" /> Português (Brasil)
+## <img src="https://hatscripts.github.io/circle-flags/flags/br.svg" width="20" alt="Brasil" /> Português - pt-BR
 
 ### 1) Clonar o repositório
 
@@ -124,7 +124,7 @@ npm run dist:linux:appimage
 
 ---
 
-## <img src="https://hatscripts.github.io/circle-flags/flags/es.svg" width="20" alt="España" /> Español (ES)
+## <img src="https://hatscripts.github.io/circle-flags/flags/es.svg" width="20" alt="España" /> Español - es
 
 ### 1) Clonar repositorio
 
