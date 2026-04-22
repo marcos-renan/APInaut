@@ -27,6 +27,34 @@ export type TranslationKey =
   | "titlebar.maximize"
   | "titlebar.restore"
   | "titlebar.close"
+  | "settings.open"
+  | "settings.title"
+  | "settings.sectionAppearance"
+  | "settings.sectionEditor"
+  | "settings.sectionRequests"
+  | "settings.sectionPersistence"
+  | "settings.themeMode"
+  | "settings.themeAuto"
+  | "settings.themeDark"
+  | "settings.themeLight"
+  | "settings.uiScale"
+  | "settings.uiDensity"
+  | "settings.densityComfortable"
+  | "settings.densityCompact"
+  | "settings.requestFontSize"
+  | "settings.responseFontSize"
+  | "settings.showLineNumbers"
+  | "settings.responseWordWrap"
+  | "settings.copyResponsePretty"
+  | "settings.requestTimeout"
+  | "settings.followRedirects"
+  | "settings.verifySsl"
+  | "settings.defaultProxy"
+  | "settings.autoSaveDrafts"
+  | "settings.clearResponsesOnLaunch"
+  | "settings.responseHistoryLimit"
+  | "settings.responseFontSizeHint"
+  | "settings.reset"
   | "home.title"
   | "home.import"
   | "home.createCollection"
@@ -131,6 +159,7 @@ export type TranslationKey =
   | "response.headers"
   | "response.cookies"
   | "response.previewUnavailable"
+  | "response.copyBody"
   | "response.none"
   | "response.noneCookies"
   | "response.noneHeaders"
@@ -199,6 +228,34 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "titlebar.maximize": "Maximizar",
     "titlebar.restore": "Restaurar",
     "titlebar.close": "Fechar",
+    "settings.open": "Configurações",
+    "settings.title": "Configurações",
+    "settings.sectionAppearance": "Aparência",
+    "settings.sectionEditor": "Editor e Resposta",
+    "settings.sectionRequests": "Requisições",
+    "settings.sectionPersistence": "Persistência",
+    "settings.themeMode": "Tema",
+    "settings.themeAuto": "Automático",
+    "settings.themeDark": "Escuro",
+    "settings.themeLight": "Claro",
+    "settings.uiScale": "Escala da interface",
+    "settings.uiDensity": "Densidade",
+    "settings.densityComfortable": "Confortável",
+    "settings.densityCompact": "Compacta",
+    "settings.requestFontSize": "Tamanho da fonte da request",
+    "settings.responseFontSize": "Tamanho da fonte da resposta",
+    "settings.showLineNumbers": "Mostrar números de linha",
+    "settings.responseWordWrap": "Quebrar linha na resposta",
+    "settings.copyResponsePretty": "Copiar JSON formatado na resposta",
+    "settings.requestTimeout": "Timeout padrão (ms)",
+    "settings.followRedirects": "Seguir redirecionamentos",
+    "settings.verifySsl": "Verificar SSL",
+    "settings.defaultProxy": "Proxy padrão (URL)",
+    "settings.autoSaveDrafts": "Salvar rascunhos automaticamente",
+    "settings.clearResponsesOnLaunch": "Limpar respostas ao abrir coleção",
+    "settings.responseHistoryLimit": "Limite de respostas salvas",
+    "settings.responseFontSizeHint": "Ajusta o tamanho da fonte nos painéis de resposta da API.",
+    "settings.reset": "Restaurar padrão",
     "home.title": "Coleções",
     "home.import": "Importar",
     "home.createCollection": "Criar coleção",
@@ -303,6 +360,7 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "response.headers": "Headers",
     "response.cookies": "Cookies",
     "response.previewUnavailable": "Não foi possível renderizar a página por erro na requisição.",
+    "response.copyBody": "Copiar body da resposta",
     "response.none": "Nenhuma resposta ainda.",
     "response.noneCookies": "Nenhum cookie retornado.",
     "response.noneHeaders": "Nenhum header retornado.",
@@ -370,6 +428,34 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "titlebar.maximize": "Maximize",
     "titlebar.restore": "Restore",
     "titlebar.close": "Close",
+    "settings.open": "Settings",
+    "settings.title": "Settings",
+    "settings.sectionAppearance": "Appearance",
+    "settings.sectionEditor": "Editor and Response",
+    "settings.sectionRequests": "Requests",
+    "settings.sectionPersistence": "Persistence",
+    "settings.themeMode": "Theme",
+    "settings.themeAuto": "Auto",
+    "settings.themeDark": "Dark",
+    "settings.themeLight": "Light",
+    "settings.uiScale": "UI scale",
+    "settings.uiDensity": "Density",
+    "settings.densityComfortable": "Comfortable",
+    "settings.densityCompact": "Compact",
+    "settings.requestFontSize": "Request font size",
+    "settings.responseFontSize": "Response font size",
+    "settings.showLineNumbers": "Show line numbers",
+    "settings.responseWordWrap": "Wrap response lines",
+    "settings.copyResponsePretty": "Copy pretty JSON in response",
+    "settings.requestTimeout": "Default timeout (ms)",
+    "settings.followRedirects": "Follow redirects",
+    "settings.verifySsl": "Verify SSL",
+    "settings.defaultProxy": "Default proxy (URL)",
+    "settings.autoSaveDrafts": "Auto-save drafts",
+    "settings.clearResponsesOnLaunch": "Clear responses when opening collection",
+    "settings.responseHistoryLimit": "Saved responses limit",
+    "settings.responseFontSizeHint": "Adjusts font size in the API response panels.",
+    "settings.reset": "Reset to defaults",
     "home.title": "Collections",
     "home.import": "Import",
     "home.createCollection": "Create collection",
@@ -474,6 +560,7 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "response.headers": "Headers",
     "response.cookies": "Cookies",
     "response.previewUnavailable": "Could not render page because request failed.",
+    "response.copyBody": "Copy response body",
     "response.none": "No response yet.",
     "response.noneCookies": "No cookies returned.",
     "response.noneHeaders": "No headers returned.",
@@ -541,6 +628,34 @@ const spanishOverrides: Partial<Record<TranslationKey, string>> = {
   "titlebar.maximize": "Maximizar",
   "titlebar.restore": "Restaurar",
   "titlebar.close": "Cerrar",
+  "settings.open": "Configuración",
+  "settings.title": "Configuración",
+  "settings.sectionAppearance": "Apariencia",
+  "settings.sectionEditor": "Editor y Respuesta",
+  "settings.sectionRequests": "Requests",
+  "settings.sectionPersistence": "Persistencia",
+  "settings.themeMode": "Tema",
+  "settings.themeAuto": "Automático",
+  "settings.themeDark": "Oscuro",
+  "settings.themeLight": "Claro",
+  "settings.uiScale": "Escala de interfaz",
+  "settings.uiDensity": "Densidad",
+  "settings.densityComfortable": "Cómoda",
+  "settings.densityCompact": "Compacta",
+  "settings.requestFontSize": "Tamaño de fuente de la request",
+  "settings.responseFontSize": "Tamaño de fuente de la respuesta",
+  "settings.showLineNumbers": "Mostrar números de línea",
+  "settings.responseWordWrap": "Ajustar líneas en la respuesta",
+  "settings.copyResponsePretty": "Copiar JSON formateado en la respuesta",
+  "settings.requestTimeout": "Timeout predeterminado (ms)",
+  "settings.followRedirects": "Seguir redirecciones",
+  "settings.verifySsl": "Verificar SSL",
+  "settings.defaultProxy": "Proxy predeterminado (URL)",
+  "settings.autoSaveDrafts": "Guardar borradores automáticamente",
+  "settings.clearResponsesOnLaunch": "Limpiar respuestas al abrir la colección",
+  "settings.responseHistoryLimit": "Límite de respuestas guardadas",
+  "settings.responseFontSizeHint": "Ajusta el tamaño de fuente en los paneles de respuesta de la API.",
+  "settings.reset": "Restaurar predeterminado",
   "home.title": "Colecciones",
   "home.import": "Importar",
   "home.createCollection": "Crear colección",
@@ -632,6 +747,7 @@ const spanishOverrides: Partial<Record<TranslationKey, string>> = {
   "response.time": "Tiempo",
   "response.transferred": "Transferido",
   "response.previewUnavailable": "No se pudo renderizar la página por un error en la request.",
+  "response.copyBody": "Copiar body de la respuesta",
   "response.none": "Sin respuesta todavía.",
   "response.noneCookies": "No se devolvieron cookies.",
   "response.noneHeaders": "No se devolvieron headers.",

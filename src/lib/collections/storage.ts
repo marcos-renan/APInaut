@@ -1,4 +1,5 @@
 import { createEnvironmentVariable, normalizeEnvironments } from "./helpers";
+import { APP_AUTOSAVE_DRAFTS_STORAGE_KEY } from "@/lib/app-settings";
 import { parseCollectionsData } from "./parser";
 import type {
   Collection,
@@ -72,8 +73,15 @@ export const saveCollections = (collections: Collection[]) => {
   }
 
   const serialized = JSON.stringify(collections);
-  window.localStorage.setItem(STORAGE_KEY, serialized);
-  cachedRaw = serialized;
+  const autoSaveDrafts = window.localStorage.getItem(APP_AUTOSAVE_DRAFTS_STORAGE_KEY) !== "0";
+
+  if (autoSaveDrafts) {
+    window.localStorage.setItem(STORAGE_KEY, serialized);
+    cachedRaw = serialized;
+  } else {
+    cachedRaw = window.localStorage.getItem(STORAGE_KEY);
+  }
+
   cachedCollections = collections;
   window.dispatchEvent(new Event(COLLECTIONS_CHANGED_EVENT));
 };

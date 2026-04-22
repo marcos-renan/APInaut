@@ -17,12 +17,25 @@ type RequestPayload = {
     mimeType?: string;
     fileData?: string;
   }>;
+  options?: {
+    timeoutMs?: number;
+    followRedirects?: boolean;
+    verifySsl?: boolean;
+    proxyUrl?: string;
+  };
 };
 
 type RequestInput = {
   method: string;
   headers: Record<string, string>;
   body?: string | ArrayBuffer;
+};
+
+type RequestExecutionOptions = {
+  timeoutMs: number;
+  followRedirects: boolean;
+  verifySsl: boolean;
+  proxyUrl: string | null;
 };
 
 type UpstreamResult = {
@@ -381,39 +394,94 @@ const buildFriendlyConnectionErrorMessage = (
   return routeMessage(locale, "connectionFailed", { host: hostLabel });
 };
 
-const runFetch = async (url: string, input: RequestInput): Promise<UpstreamResult> => {
-  const response = await fetch(url, {
-    method: input.method,
-    headers: input.headers,
-    body: input.body,
-    cache: "no-store",
-    redirect: "follow",
-  });
+const runFetch = async (
+  url: string,
+  input: RequestInput,
+  options: RequestExecutionOptions,
+): Promise<UpstreamResult> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs);
+  const disableTlsVerification = !options.verifySsl && url.startsWith("https://");
+  const previousTlsValue = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  const previousHttpProxy = process.env.HTTP_PROXY;
+  const previousHttpsProxy = process.env.HTTPS_PROXY;
 
-  const body = await response.text();
-  const headers: Record<string, string> = {};
+  try {
+    if (disableTlsVerification) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    }
 
-  response.headers.forEach((value, key) => {
-    headers[key] = value;
-  });
+    if (options.proxyUrl) {
+      process.env.HTTP_PROXY = options.proxyUrl;
+      process.env.HTTPS_PROXY = options.proxyUrl;
+    }
 
-  const getSetCookie = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
-  const cookies =
-    typeof getSetCookie === "function"
-      ? getSetCookie.call(response.headers).filter((cookie) => cookie.trim().length > 0)
-      : headers["set-cookie"]
-        ? [headers["set-cookie"]]
-        : [];
+    const response = await fetch(url, {
+      method: input.method,
+      headers: input.headers,
+      body: input.body,
+      cache: "no-store",
+      redirect: options.followRedirects ? "follow" : "manual",
+      signal: controller.signal,
+    } as RequestInit);
 
-  return {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-    cookies,
-    body,
-    finalUrl: response.url,
-    effectiveUrl: url,
-  };
+    const body = await response.text();
+    const headers: Record<string, string> = {};
+
+    response.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+
+    const getSetCookie = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+    const cookies =
+      typeof getSetCookie === "function"
+        ? getSetCookie.call(response.headers).filter((cookie) => cookie.trim().length > 0)
+        : headers["set-cookie"]
+          ? [headers["set-cookie"]]
+          : [];
+
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+      cookies,
+      body,
+      finalUrl: response.url,
+      effectiveUrl: url,
+    };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const timeoutError = new Error("Request timeout");
+      (timeoutError as Error & { code?: string }).code = "ETIMEDOUT";
+      throw timeoutError;
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+
+    if (disableTlsVerification) {
+      if (previousTlsValue === undefined) {
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      } else {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = previousTlsValue;
+      }
+    }
+
+    if (options.proxyUrl) {
+      if (previousHttpProxy === undefined) {
+        delete process.env.HTTP_PROXY;
+      } else {
+        process.env.HTTP_PROXY = previousHttpProxy;
+      }
+
+      if (previousHttpsProxy === undefined) {
+        delete process.env.HTTPS_PROXY;
+      } else {
+        process.env.HTTPS_PROXY = previousHttpsProxy;
+      }
+    }
+  }
 };
 
 const runNodeLoopbackRequest = (
@@ -421,6 +489,7 @@ const runNodeLoopbackRequest = (
   connectHost: string,
   input: RequestInput,
   locale: ErrorLocale,
+  options: RequestExecutionOptions,
 ): Promise<UpstreamResult> =>
   new Promise((resolve, reject) => {
     const isHttps = parsed.protocol === "https:";
@@ -438,7 +507,7 @@ const runNodeLoopbackRequest = (
       path: `${parsed.pathname}${parsed.search}`,
       method: input.method,
       headers: requestHeaders,
-      ...(isHttps ? { rejectUnauthorized: false } : {}),
+      ...(isHttps ? { rejectUnauthorized: options.verifySsl } : {}),
     };
 
     const handleResponse = (res: http.IncomingMessage) => {
@@ -486,7 +555,7 @@ const runNodeLoopbackRequest = (
 
     const req = isHttps ? https.request(requestOptions, handleResponse) : http.request(requestOptions, handleResponse);
 
-    req.setTimeout(15000, () => {
+    req.setTimeout(options.timeoutMs, () => {
       req.destroy(new Error(routeMessage(locale, "localLoopbackTimeout")));
     });
 
@@ -507,6 +576,7 @@ const runLocalAliasFallback = async (
   candidateUrl: string,
   input: RequestInput,
   locale: ErrorLocale,
+  options: RequestExecutionOptions,
 ): Promise<UpstreamResult> => {
   const parsed = new URL(candidateUrl);
   const connectTargets = ["127.0.0.1", "::1", "localhost"];
@@ -514,7 +584,7 @@ const runLocalAliasFallback = async (
 
   for (const target of connectTargets) {
     try {
-      return await runNodeLoopbackRequest(parsed, target, input, locale);
+      return await runNodeLoopbackRequest(parsed, target, input, locale, options);
     } catch (error) {
       errors.push(`${target} -> ${formatNetworkError(error)}`);
     }
@@ -608,6 +678,19 @@ export async function POST(request: NextRequest) {
       body: METHODS_WITHOUT_BODY.has(normalizedMethod) ? undefined : requestBody,
     };
 
+    const requestOptions: RequestExecutionOptions = {
+      timeoutMs:
+        typeof payload.options?.timeoutMs === "number" && Number.isFinite(payload.options.timeoutMs)
+          ? Math.min(Math.max(Math.round(payload.options.timeoutMs), 1000), 120000)
+          : 15000,
+      followRedirects: payload.options?.followRedirects !== false,
+      verifySsl: payload.options?.verifySsl !== false,
+      proxyUrl:
+        typeof payload.options?.proxyUrl === "string" && payload.options.proxyUrl.trim().length > 0
+          ? payload.options.proxyUrl.trim()
+          : null,
+    };
+
     const startedAt = performance.now();
     const candidateUrls = buildCandidateUrls(parsedUrl.toString());
     const attempts: string[] = [];
@@ -616,7 +699,7 @@ export async function POST(request: NextRequest) {
 
     for (const candidateUrl of candidateUrls) {
       try {
-        upstreamResult = await runFetch(candidateUrl, requestInput);
+        upstreamResult = await runFetch(candidateUrl, requestInput, requestOptions);
         break;
       } catch (error) {
         const formattedError = formatNetworkError(error);
@@ -627,7 +710,7 @@ export async function POST(request: NextRequest) {
 
         if (isLoopbackHostname(candidateParsed.hostname)) {
           try {
-            upstreamResult = await runLocalAliasFallback(candidateUrl, requestInput, locale);
+            upstreamResult = await runLocalAliasFallback(candidateUrl, requestInput, locale, requestOptions);
             break;
           } catch (fallbackError) {
             const formattedFallbackError = formatNetworkError(fallbackError);

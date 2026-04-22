@@ -100,7 +100,7 @@ export const FolderRow = ({
       className={`apinaut-tree-selectable w-full ${isRectangleSelecting ? "pointer-events-none" : ""}`}
     >
       <div
-        className={`flex h-10 w-full items-center gap-2 rounded-lg border px-2 text-left text-sm transition ${
+        className={`flex h-[var(--apinaut-tree-row-height,40px)] w-full items-center gap-2 rounded-lg border px-2 text-left text-sm transition ${
           isDropTarget
             ? "border-violet-300/70 bg-violet-500/25"
             : isSelected

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AppSettingsProvider } from "@/components/app-settings-provider";
 import { DesktopTitleBar } from "@/components/desktop-titlebar";
 import { LanguageProvider } from "@/components/language-provider";
 import "./globals.css";
@@ -31,8 +32,10 @@ export default function RootLayout({
     >
       <body className="h-full min-h-0 flex flex-col overflow-hidden">
         <LanguageProvider>
-          <DesktopTitleBar />
-          {children}
+          <AppSettingsProvider>
+            <DesktopTitleBar />
+            {children}
+          </AppSettingsProvider>
         </LanguageProvider>
       </body>
     </html>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import CodeMirror, { type Extension } from "@uiw/react-codemirror";
 import {
   autocompletion,
@@ -48,6 +48,8 @@ type CodeEditorProps = {
   singleLine?: boolean;
   allowOverflowVisible?: boolean;
   concealText?: boolean;
+  fontSizePx?: number;
+  wordWrap?: boolean;
 };
 
 const editorTheme = EditorView.theme(
@@ -55,7 +57,7 @@ const editorTheme = EditorView.theme(
     "&": {
       backgroundColor: "#121025",
       height: "100%",
-      fontSize: "12px",
+      fontSize: "var(--apinaut-editor-font-size, 12px)",
       color: "#e5e7eb",
     },
     ".cm-scroller": {
@@ -295,11 +297,13 @@ export const CodeEditor = ({
   singleLine = false,
   allowOverflowVisible = false,
   concealText = false,
+  fontSizePx,
+  wordWrap = true,
 }: CodeEditorProps) => {
   const extensions = useMemo(() => {
     const nextExtensions: Extension[] = [editorTheme];
 
-    if (!singleLine) {
+    if (!singleLine && wordWrap) {
       nextExtensions.push(EditorView.lineWrapping);
     }
     const templateCompletions = Array.from(new Set(templateVariables.map((item) => item.trim()).filter(Boolean))).map(
@@ -443,8 +447,16 @@ export const CodeEditor = ({
     concealText,
     compact,
     singleLine,
+    wordWrap,
     templateVariables,
   ]);
+
+  const wrapperStyle =
+    typeof fontSizePx === "number"
+      ? ({
+          "--apinaut-editor-font-size": `${fontSizePx}px`,
+        } as CSSProperties)
+      : undefined;
 
   return (
     <div
@@ -453,6 +465,7 @@ export const CodeEditor = ({
         "rounded-lg border border-white/15 bg-[#121025]",
         className,
       )}
+      style={wrapperStyle}
     >
       <CodeMirror
         value={value}

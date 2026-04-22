@@ -6,6 +6,22 @@
   --scrollbar-track: #171328;
   --scrollbar-thumb: #4a3b78;
   --scrollbar-thumb-hover: #5c4b94;
+  --apinaut-ui-scale: 1;
+  --apinaut-tree-row-height: 40px;
+  --apinaut-control-density-padding: 12px;
+}
+
+:root[data-apinaut-theme="light"] {
+  --background: #f4f2ff;
+  --foreground: #1b1433;
+  --scrollbar-track: #ddd6f3;
+  --scrollbar-thumb: #9a8dc9;
+  --scrollbar-thumb-hover: #8371ba;
+}
+
+:root[data-apinaut-density="compact"] {
+  --apinaut-tree-row-height: 34px;
+  --apinaut-control-density-padding: 8px;
 }
 
 @theme inline {
@@ -24,6 +40,10 @@ body {
 html,
 body {
   height: 100%;
+}
+
+html {
+  font-size: calc(16px * var(--apinaut-ui-scale));
 }
 
 body.apinaut-desktop {

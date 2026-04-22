@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { useAppSettings } from "@/components/app-settings-provider";
 import { CodeEditor } from "@/components/code-editor";
 import { useI18n } from "@/components/language-provider";
 
@@ -9,6 +12,8 @@ type ResponsePanelProps = Record<string, any>;
 
 export const ResponsePanel = (props: ResponsePanelProps) => {
   const { t } = useI18n();
+  const { settings } = useAppSettings();
+  const [responseCopied, setResponseCopied] = useState(false);
   const {
     requestError,
     result,
@@ -25,6 +30,30 @@ export const ResponsePanel = (props: ResponsePanelProps) => {
     responseLanguage,
     hasResponseError,
   } = props;
+
+  const copyResponseBody = async () => {
+    if (!result) {
+      return;
+    }
+
+    let valueToCopy = result.body ?? "";
+
+    if (settings.copyResponsePretty) {
+      try {
+        valueToCopy = JSON.stringify(JSON.parse(valueToCopy), null, 2);
+      } catch {
+        // mantém o conteúdo bruto quando não for JSON válido.
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(valueToCopy);
+      setResponseCopied(true);
+      window.setTimeout(() => setResponseCopied(false), 900);
+    } catch {
+      setResponseCopied(false);
+    }
+  };
 
   return (
     <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] px-0 py-3">
@@ -96,6 +125,20 @@ export const ResponsePanel = (props: ResponsePanelProps) => {
                 {mode.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={copyResponseBody}
+              disabled={!result}
+              className={`ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md border transition ${
+                responseCopied
+                  ? "border-emerald-300/50 bg-emerald-500/20 text-emerald-100"
+                  : "border-white/15 bg-[#1a1728] text-zinc-200 hover:bg-white/10"
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+              aria-label={t("response.copyBody")}
+              title={t("response.copyBody")}
+            >
+              {responseCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
           </div>
         )}
 
@@ -121,6 +164,9 @@ export const ResponsePanel = (props: ResponsePanelProps) => {
             <CodeEditor
               value={responsePaneContent}
               readOnly
+              fontSizePx={settings.responseFontSize}
+              lineNumbers={settings.showLineNumbers}
+              wordWrap={settings.responseWordWrap}
               language={responseLanguage}
               jsonColorPreset="response"
               errorTone={hasResponseError}

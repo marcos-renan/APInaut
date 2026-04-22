@@ -17,6 +17,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { useAppSettings } from "@/components/app-settings-provider";
 import { EnvironmentModal } from "@/components/environment-modal";
 import { useI18n } from "@/components/language-provider";
 import { RequestContextMenu } from "@/components/request-context-menu";
@@ -119,8 +120,51 @@ const EMPTY_REQUEST_RESPONSE_STATE: RequestResponseState = {
 };
 const EMPTY_RESPONSE_STATE_BY_REQUEST_ID: Record<string, RequestResponseState> = {};
 
+const limitResponseStateEntries = (
+  source: Record<string, RequestResponseState>,
+  limit: number,
+  keepRequestId?: string | null,
+) => {
+  const entries = Object.entries(source);
+  if (entries.length <= limit) {
+    return source;
+  }
+
+  const keepSet = new Set<string>();
+  if (keepRequestId && source[keepRequestId]) {
+    keepSet.add(keepRequestId);
+  }
+
+  const nextEntries: Array<[string, RequestResponseState]> = [];
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+
+    if (!entry) {
+      continue;
+    }
+
+    const [requestId, responseState] = entry;
+    if (keepSet.has(requestId)) {
+      continue;
+    }
+
+    nextEntries.unshift([requestId, responseState]);
+    if (nextEntries.length >= limit - keepSet.size) {
+      break;
+    }
+  }
+
+  if (keepSet.size > 0 && keepRequestId) {
+    nextEntries.push([keepRequestId, source[keepRequestId]]);
+  }
+
+  return Object.fromEntries(nextEntries);
+};
+
 export default function CollectionDetailsPage() {
   const { t, locale } = useI18n();
+  const { settings } = useAppSettings();
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const requestContextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -494,9 +538,15 @@ export default function CollectionDetailsPage() {
     }
 
     hydratedResponseStateCollectionIdRef.current = collection.id;
+    if (settings.clearResponsesOnLaunch) {
+      skipPersistResponseStateRef.current = false;
+      setResponseStateByRequestId(EMPTY_RESPONSE_STATE_BY_REQUEST_ID);
+      return;
+    }
+
     skipPersistResponseStateRef.current = true;
     setResponseStateByRequestId(collectionResponseStateByRequestId);
-  }, [collection, collectionResponseStateByRequestId]);
+  }, [collection, collectionResponseStateByRequestId, settings.clearResponsesOnLaunch]);
 
   useEffect(() => {
     if (!collectionId || !collection) {
@@ -512,23 +562,45 @@ export default function CollectionDetailsPage() {
       return;
     }
 
+    const limitedResponseStateByRequestId = limitResponseStateEntries(
+      responseStateByRequestId,
+      settings.responseHistoryLimit,
+      activeRequestId,
+    );
+
     updateCollections((current) =>
       current.map((item) =>
         item.id === collectionId
           ? {
               ...item,
-              requestResponsesByRequestId: responseStateByRequestId,
+              requestResponsesByRequestId: limitedResponseStateByRequestId,
             }
           : item,
       ),
     );
   }, [
+    activeRequestId,
     collection,
     collectionId,
     collectionResponseStateSerialized,
     localResponseStateSerialized,
     responseStateByRequestId,
+    settings.responseHistoryLimit,
   ]);
+
+  useEffect(() => {
+    const limited = limitResponseStateEntries(
+      responseStateByRequestId,
+      settings.responseHistoryLimit,
+      activeRequestId,
+    );
+
+    if (limited === responseStateByRequestId) {
+      return;
+    }
+
+    setResponseStateByRequestId(limited);
+  }, [activeRequestId, responseStateByRequestId, settings.responseHistoryLimit]);
 
   const activeEnvironment = useMemo(
     () =>
@@ -2188,11 +2260,23 @@ export default function CollectionDetailsPage() {
           mimeType?: string;
           fileData?: string;
         }>;
+        options: {
+          timeoutMs: number;
+          followRedirects: boolean;
+          verifySsl: boolean;
+          proxyUrl?: string;
+        };
       } = {
         method: resolvedRequest.method,
         url: finalUrl,
         headers: buildHeaders(resolvedRequest),
         bodyMode: resolvedRequest.bodyMode,
+        options: {
+          timeoutMs: settings.requestTimeoutMs,
+          followRedirects: settings.followRedirects,
+          verifySsl: settings.verifySsl,
+          ...(settings.defaultProxyUrl.trim() ? { proxyUrl: settings.defaultProxyUrl.trim() } : {}),
+        },
       };
 
       const methodWithoutBody = payload.method === "GET";

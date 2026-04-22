@@ -2,6 +2,7 @@
 
 import { Copy, Eye, EyeOff, Send } from "lucide-react";
 
+import { useAppSettings } from "@/components/app-settings-provider";
 import { CodeEditor } from "@/components/code-editor";
 import { useI18n } from "@/components/language-provider";
 import { KeyValueEditor, MultipartFormEditor } from "@/components/request-editors";
@@ -16,6 +17,7 @@ type RequestEditorPanelProps = Record<string, any>;
 
 export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
   const { t } = useI18n();
+  const { settings } = useAppSettings();
   const {
     activeRequest,
     updateActiveRequest,
@@ -229,6 +231,8 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                     enableJsonAutocomplete={activeRequest.bodyMode === "json"}
                     enableTemplateAutocomplete={activeRequest.bodyMode !== "none"}
                     templateVariables={templateVariableOptions}
+                    fontSizePx={settings.requestFontSize}
+                    lineNumbers={settings.showLineNumbers}
                     height={280}
                     className={activeRequest.bodyMode === "none" ? "min-h-0 flex-1 opacity-60" : "min-h-0 flex-1"}
                     placeholder={
@@ -395,6 +399,8 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                   language="javascript"
                   enableTemplateAutocomplete
                   templateVariables={templateVariableOptions}
+                  fontSizePx={settings.requestFontSize}
+                  lineNumbers={settings.showLineNumbers}
                   height={280}
                   className="min-h-0 flex-1"
                   placeholder={
