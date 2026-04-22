@@ -1708,6 +1708,18 @@ export default function CollectionDetailsPage() {
   };
 
   const selectRequest = (requestId: string) => {
+    const folderPath = findFolderPathForRequest(requestTree, requestId) ?? [];
+
+    if (folderPath.length > 0) {
+      setExpandedFolderIds((current) => {
+        const merged = new Set(current);
+        for (const folderId of folderPath) {
+          merged.add(folderId);
+        }
+        return Array.from(merged);
+      });
+    }
+
     setActiveRequestAndPersist(requestId);
     setRequestContextMenu(null);
     setEditingFolderId(null);

@@ -68,6 +68,7 @@ export const RequestTreePanel = ({
   const [draggedNodeIds, setDraggedNodeIds] = useState<string[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isRectangleSelecting, setIsRectangleSelecting] = useState(false);
+  const panelRef = useRef<HTMLElement | null>(null);
   const treeSurfaceRef = useRef<HTMLDivElement | null>(null);
   const lastSelectionActivationPointRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const rectangleSessionRef = useRef<{
@@ -115,6 +116,33 @@ export const RequestTreePanel = ({
     setSelectedNodeIds((current) => current.filter((nodeId) => existingNodeIds.has(nodeId)));
     setDraggedNodeIds((current) => current.filter((nodeId) => existingNodeIds.has(nodeId)));
   }, [orderedNodeIds]);
+
+  useEffect(() => {
+    if (!activeRequestId) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      if (!panel) {
+        return;
+      }
+
+      const activeRow = panel.querySelector<HTMLElement>(`[data-node-id="${activeRequestId}"]`);
+      if (!activeRow) {
+        return;
+      }
+
+      activeRow.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [activeRequestId, expandedFolderIds, requestTree]);
 
   const handleNodePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
@@ -472,7 +500,10 @@ export const RequestTreePanel = ({
   };
 
   return (
-    <aside className="flex min-h-0 flex-col overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3">
+    <aside
+      ref={panelRef}
+      className="flex min-h-0 flex-col overflow-auto border-y border-white/10 bg-[#1a1728] px-0 py-3"
+    >
       <RequestTreePanelHeader
         title={t("requestTree.title")}
         createFolderLabel={t("requestTree.createFolder")}
