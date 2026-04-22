@@ -416,8 +416,8 @@ const createMainWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    minWidth: 760,
-    minHeight: 520,
+    minWidth: 520,
+    minHeight: 420,
     show: false,
     frame: isWindows ? true : false,
     titleBarStyle: isWindows ? "hidden" : "default",

@@ -51,7 +51,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
       {activeRequest ? (
         <>
           <div className="mb-3 shrink-0 px-3">
-            <div className="grid gap-2 md:grid-cols-[110px_minmax(0,1fr)_40px]">
+            <div className="grid grid-cols-[110px_minmax(0,1fr)_40px] gap-2">
               <select
                 value={activeRequest.method}
                 onChange={(event) =>
@@ -300,7 +300,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                 )}
 
                 {activeRequest.authType === "basic" && (
-                  <div className="grid gap-2 md:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <CodeEditor
                       value={activeRequest.basicUsername}
                       onChange={(nextValue) =>

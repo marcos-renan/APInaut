@@ -89,7 +89,7 @@ export const KeyValueEditor = ({
         const isDeletePending = pendingDeleteRowId === row.id;
 
         return (
-          <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px]">
+          <div key={row.id} className="grid grid-cols-[48px_minmax(0,1fr)_minmax(0,1fr)_40px] gap-2">
             <button
               type="button"
               onClick={() => onChange(row.id, "enabled", !row.enabled)}
@@ -257,7 +257,7 @@ export const MultipartFormEditor = ({
         const fileLabel = row.fileName?.trim() || row.value.trim() || t("table.selectFile");
 
         return (
-          <div key={row.id} className="grid gap-2 md:grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px]">
+          <div key={row.id} className="grid grid-cols-[48px_minmax(0,1.2fr)_120px_minmax(0,1fr)_40px] gap-2">
             <button
               type="button"
               onClick={() => onChange(row.id, "enabled", !row.enabled)}

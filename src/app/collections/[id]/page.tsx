@@ -56,6 +56,7 @@ import {
   createEnvironmentVariableRow,
   createFolderNode,
   createMultipartFormRow,
+  COMPACT_LAYOUT_BREAKPOINT,
   createRow,
   createRequestNode,
   DEFAULT_LEFT_PANEL_WIDTH,
@@ -63,7 +64,6 @@ import {
   getInitialPaneWidths,
   METHOD_STYLE_MAP,
   MIN_CENTER_PANEL_WIDTH,
-  MIN_LAYOUT_WIDTH,
   MIN_LEFT_PANEL_WIDTH,
   MIN_RIGHT_PANEL_WIDTH,
   normalizeMultipartRowsForUi,
@@ -221,6 +221,7 @@ export default function CollectionDetailsPage() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(initialPaneWidthsRef.current.left);
   const [rightPanelWidth, setRightPanelWidth] = useState(initialPaneWidthsRef.current.right);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(null);
+  const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [urlPreviewCopied, setUrlPreviewCopied] = useState(false);
   const [editingEnvironmentNameId, setEditingEnvironmentNameId] = useState<string | null>(null);
   const [editingEnvironmentName, setEditingEnvironmentName] = useState("");
@@ -383,7 +384,32 @@ export default function CollectionDetailsPage() {
   }, [requestContextMenu]);
 
   useEffect(() => {
+    const syncLayoutMode = () => {
+      const layout = layoutRef.current;
+      const width = layout?.getBoundingClientRect().width ?? window.innerWidth;
+      setIsCompactLayout(width < COMPACT_LAYOUT_BREAKPOINT);
+    };
+
+    syncLayoutMode();
+    window.addEventListener("resize", syncLayoutMode);
+
+    return () => {
+      window.removeEventListener("resize", syncLayoutMode);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isCompactLayout && resizingPane === "right") {
+      setResizingPane(null);
+    }
+  }, [isCompactLayout, resizingPane]);
+
+  useEffect(() => {
     if (!resizingPane) {
+      return;
+    }
+
+    if (isCompactLayout && resizingPane === "right") {
       return;
     }
 
@@ -440,7 +466,7 @@ export default function CollectionDetailsPage() {
       document.body.style.userSelect = previousUserSelect;
       document.body.style.cursor = previousCursor;
     };
-  }, [leftPanelWidth, resizingPane, rightPanelWidth]);
+  }, [isCompactLayout, leftPanelWidth, resizingPane, rightPanelWidth]);
 
   useEffect(() => {
     const syncPaneWidthsWithContainer = () => {
@@ -2485,7 +2511,6 @@ export default function CollectionDetailsPage() {
   const desktopGridStyle = {
     "--left-pane-width": `${leftPanelWidth}px`,
     "--right-pane-width": `${rightPanelWidth}px`,
-    minWidth: `${MIN_LAYOUT_WIDTH}px`,
   } as CSSProperties;
 
   return (
@@ -2631,113 +2656,222 @@ export default function CollectionDetailsPage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-          <div
-            ref={layoutRef}
-            className="grid h-full min-h-0 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
-            style={desktopGridStyle}
-          >
-          <RequestTreePanel
-            requestTree={requestTree}
-            activeRequestId={activeRequestId}
-            centerOnRequestId={centerTreeRequestId}
-            centerOnRequestVersion={centerTreeRequestVersion}
-            editingRequestId={editingRequestId}
-            editingRequestName={editingRequestName}
-            editingFolderId={editingFolderId}
-            editingFolderName={editingFolderName}
-            expandedFolderIds={expandedFolderIds}
-            methodStyleMap={METHOD_STYLE_MAP}
-            setEditingRequestName={setEditingRequestName}
-            setEditingFolderName={setEditingFolderName}
-            createFolder={createFolder}
-            createRequest={createRequest}
-            moveNodeIntoFolder={moveNodeIntoFolder}
-            moveNodeAtPosition={moveNodeAtPosition}
-            selectRequest={selectRequest}
-            toggleFolderExpanded={toggleFolderExpanded}
-            startEditingFolderName={startEditingFolderName}
-            startEditingRequestName={startEditingRequestName}
-            commitEditingFolderName={commitEditingFolderName}
-            cancelEditingFolderName={cancelEditingFolderName}
-            commitEditingRequestName={commitEditingRequestName}
-            cancelEditingRequestName={cancelEditingRequestName}
-            openRequestContextMenu={openRequestContextMenu}
-          />
+        <div className={`min-h-0 flex-1 ${isCompactLayout ? "overflow-hidden" : "overflow-x-auto overflow-y-hidden"}`}>
+          {isCompactLayout ? (
+            <div
+              ref={layoutRef}
+              className="grid h-full min-h-0 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)]"
+              style={
+                {
+                  "--left-pane-width": `${leftPanelWidth}px`,
+                } as CSSProperties
+              }
+            >
+              <RequestTreePanel
+                requestTree={requestTree}
+                activeRequestId={activeRequestId}
+                centerOnRequestId={centerTreeRequestId}
+                centerOnRequestVersion={centerTreeRequestVersion}
+                editingRequestId={editingRequestId}
+                editingRequestName={editingRequestName}
+                editingFolderId={editingFolderId}
+                editingFolderName={editingFolderName}
+                expandedFolderIds={expandedFolderIds}
+                methodStyleMap={METHOD_STYLE_MAP}
+                setEditingRequestName={setEditingRequestName}
+                setEditingFolderName={setEditingFolderName}
+                createFolder={createFolder}
+                createRequest={createRequest}
+                moveNodeIntoFolder={moveNodeIntoFolder}
+                moveNodeAtPosition={moveNodeAtPosition}
+                selectRequest={selectRequest}
+                toggleFolderExpanded={toggleFolderExpanded}
+                startEditingFolderName={startEditingFolderName}
+                startEditingRequestName={startEditingRequestName}
+                commitEditingFolderName={commitEditingFolderName}
+                cancelEditingFolderName={cancelEditingFolderName}
+                commitEditingRequestName={commitEditingRequestName}
+                cancelEditingRequestName={cancelEditingRequestName}
+                openRequestContextMenu={openRequestContextMenu}
+              />
 
-          <div className="relative bg-white/10">
-            <button
-              type="button"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                setResizingPane("left");
-              }}
-              className="absolute left-1/2 top-0 h-full w-3 -translate-x-1/2 cursor-col-resize"
-              aria-label={t("collection.resizeRequests")}
-            />
-          </div>
+              <div className="relative bg-white/10">
+                <button
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setResizingPane("left");
+                  }}
+                  className="absolute left-1/2 top-0 h-full w-3 -translate-x-1/2 cursor-col-resize"
+                  aria-label={t("collection.resizeRequests")}
+                />
+              </div>
 
-          <RequestEditorPanel
-            {...{
-              activeRequest,
-              updateActiveRequest,
-              templateVariableOptions,
-              sendRequest,
-              isSending,
-              requestTab,
-              setRequestTab,
-              copyUrlPreview,
-              urlPreview,
-              urlPreviewCopied,
-              updateRow,
-              addRow,
-              removeRow,
-              handleTemplateTextFieldChange,
-              handleTemplateTextFieldKeyDown,
-              updateMultipartRow,
-              addMultipartRow,
-              removeMultipartRow,
-              selectMultipartFile,
-              showBearerToken,
-              setShowBearerToken,
-              showBasicPassword,
-              setShowBasicPassword,
-              scriptTab,
-              setScriptTab,
-            }}
-          />
+              <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+                <div className="min-h-[360px] shrink-0">
+                  <RequestEditorPanel
+                    {...{
+                      activeRequest,
+                      updateActiveRequest,
+                      templateVariableOptions,
+                      sendRequest,
+                      isSending,
+                      requestTab,
+                      setRequestTab,
+                      copyUrlPreview,
+                      urlPreview,
+                      urlPreviewCopied,
+                      updateRow,
+                      addRow,
+                      removeRow,
+                      handleTemplateTextFieldChange,
+                      handleTemplateTextFieldKeyDown,
+                      updateMultipartRow,
+                      addMultipartRow,
+                      removeMultipartRow,
+                      selectMultipartFile,
+                      showBearerToken,
+                      setShowBearerToken,
+                      showBasicPassword,
+                      setShowBasicPassword,
+                      scriptTab,
+                      setScriptTab,
+                    }}
+                  />
+                </div>
 
-          <div className="relative bg-white/10">
-            <button
-              type="button"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                setResizingPane("right");
-              }}
-              className="absolute left-1/2 top-0 h-full w-3 -translate-x-1/2 cursor-col-resize"
-              aria-label={t("collection.resizeResponse")}
-            />
-          </div>
+                <div className="h-px shrink-0 bg-white/10" />
 
-          <ResponsePanel
-            {...{
-              requestError: activeResponseState.requestError,
-              result: activeResponseState.result,
-              hasSuccessfulResponse,
-              statusDisplay,
-              secondsDisplay,
-              transferDisplay,
-              responseTab,
-              setResponseTab,
-              responseBodyView,
-              setResponseBodyView,
-              responseWebPreviewDocument,
-              responsePaneContent,
-              responseLanguage,
-              hasResponseError,
-            }}
-          />
-          </div>
+                <div className="min-h-[320px] shrink-0">
+                  <ResponsePanel
+                    {...{
+                      requestError: activeResponseState.requestError,
+                      result: activeResponseState.result,
+                      hasSuccessfulResponse,
+                      statusDisplay,
+                      secondsDisplay,
+                      transferDisplay,
+                      responseTab,
+                      setResponseTab,
+                      responseBodyView,
+                      setResponseBodyView,
+                      responseWebPreviewDocument,
+                      responsePaneContent,
+                      responseLanguage,
+                      hasResponseError,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div
+              ref={layoutRef}
+              className="grid h-full min-h-0 gap-0 [grid-template-columns:var(--left-pane-width)_1px_minmax(0,1fr)_1px_var(--right-pane-width)]"
+              style={desktopGridStyle}
+            >
+              <RequestTreePanel
+                requestTree={requestTree}
+                activeRequestId={activeRequestId}
+                centerOnRequestId={centerTreeRequestId}
+                centerOnRequestVersion={centerTreeRequestVersion}
+                editingRequestId={editingRequestId}
+                editingRequestName={editingRequestName}
+                editingFolderId={editingFolderId}
+                editingFolderName={editingFolderName}
+                expandedFolderIds={expandedFolderIds}
+                methodStyleMap={METHOD_STYLE_MAP}
+                setEditingRequestName={setEditingRequestName}
+                setEditingFolderName={setEditingFolderName}
+                createFolder={createFolder}
+                createRequest={createRequest}
+                moveNodeIntoFolder={moveNodeIntoFolder}
+                moveNodeAtPosition={moveNodeAtPosition}
+                selectRequest={selectRequest}
+                toggleFolderExpanded={toggleFolderExpanded}
+                startEditingFolderName={startEditingFolderName}
+                startEditingRequestName={startEditingRequestName}
+                commitEditingFolderName={commitEditingFolderName}
+                cancelEditingFolderName={cancelEditingFolderName}
+                commitEditingRequestName={commitEditingRequestName}
+                cancelEditingRequestName={cancelEditingRequestName}
+                openRequestContextMenu={openRequestContextMenu}
+              />
+
+              <div className="relative bg-white/10">
+                <button
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setResizingPane("left");
+                  }}
+                  className="absolute left-1/2 top-0 h-full w-3 -translate-x-1/2 cursor-col-resize"
+                  aria-label={t("collection.resizeRequests")}
+                />
+              </div>
+
+              <RequestEditorPanel
+                {...{
+                  activeRequest,
+                  updateActiveRequest,
+                  templateVariableOptions,
+                  sendRequest,
+                  isSending,
+                  requestTab,
+                  setRequestTab,
+                  copyUrlPreview,
+                  urlPreview,
+                  urlPreviewCopied,
+                  updateRow,
+                  addRow,
+                  removeRow,
+                  handleTemplateTextFieldChange,
+                  handleTemplateTextFieldKeyDown,
+                  updateMultipartRow,
+                  addMultipartRow,
+                  removeMultipartRow,
+                  selectMultipartFile,
+                  showBearerToken,
+                  setShowBearerToken,
+                  showBasicPassword,
+                  setShowBasicPassword,
+                  scriptTab,
+                  setScriptTab,
+                }}
+              />
+
+              <div className="relative bg-white/10">
+                <button
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setResizingPane("right");
+                  }}
+                  className="absolute left-1/2 top-0 h-full w-3 -translate-x-1/2 cursor-col-resize"
+                  aria-label={t("collection.resizeResponse")}
+                />
+              </div>
+
+              <ResponsePanel
+                {...{
+                  requestError: activeResponseState.requestError,
+                  result: activeResponseState.result,
+                  hasSuccessfulResponse,
+                  statusDisplay,
+                  secondsDisplay,
+                  transferDisplay,
+                  responseTab,
+                  setResponseTab,
+                  responseBodyView,
+                  setResponseBodyView,
+                  responseWebPreviewDocument,
+                  responsePaneContent,
+                  responseLanguage,
+                  hasResponseError,
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
 
