@@ -10,68 +10,7 @@ https://github.com/marcos-renan/APInaut.git
 
 ---
 
-## Português (Brasil)
-
-### 1) Clonar o repositório
-
-```bash
-git clone https://github.com/marcos-renan/APInaut.git
-cd APInaut
-```
-
-### 2) Instalar dependências
-
-```bash
-npm install
-```
-
-### 3) Rodar scripts
-
-Desenvolvimento (web + electron):
-
-```bash
-npm run dev
-```
-
-Somente web:
-
-```bash
-npm run dev:web
-```
-
-Build do projeto:
-
-```bash
-npm run build
-```
-
-Rodar app desktop em produção local:
-
-```bash
-npm run start:electron
-```
-
-Distribuição Windows:
-
-```bash
-npm run dist:win
-```
-
-Distribuição Linux `.deb`:
-
-```bash
-npm run dist:linux:deb
-```
-
-Distribuição Linux AppImage:
-
-```bash
-npm run dist:linux:appimage
-```
-
----
-
-## English (USA)
+## <img src="https://hatscripts.github.io/circle-flags/flags/us.svg" width="20" alt="United States" /> English (USA)
 
 ### 1) Clone repository
 
@@ -132,7 +71,68 @@ npm run dist:linux:appimage
 
 ---
 
-## Español (ES)
+## <img src="https://hatscripts.github.io/circle-flags/flags/br.svg" width="20" alt="Brasil" /> Português (Brasil)
+
+### 1) Clonar o repositório
+
+```bash
+git clone https://github.com/marcos-renan/APInaut.git
+cd APInaut
+```
+
+### 2) Instalar dependências
+
+```bash
+npm install
+```
+
+### 3) Rodar scripts
+
+Desenvolvimento (web + electron):
+
+```bash
+npm run dev
+```
+
+Somente web:
+
+```bash
+npm run dev:web
+```
+
+Build do projeto:
+
+```bash
+npm run build
+```
+
+Rodar app desktop em produção local:
+
+```bash
+npm run start:electron
+```
+
+Distribuição Windows:
+
+```bash
+npm run dist:win
+```
+
+Distribuição Linux `.deb`:
+
+```bash
+npm run dist:linux:deb
+```
+
+Distribuição Linux AppImage:
+
+```bash
+npm run dist:linux:appimage
+```
+
+---
+
+## <img src="https://hatscripts.github.io/circle-flags/flags/es.svg" width="20" alt="España" /> Español (ES)
 
 ### 1) Clonar repositorio
 
