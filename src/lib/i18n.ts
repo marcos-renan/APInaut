@@ -69,6 +69,9 @@ export type TranslationKey =
   | "collection.localPrefix"
   | "collection.globalPrefix"
   | "collection.environments"
+  | "collection.searchRequestsPlaceholder"
+  | "collection.searchRequestsAria"
+  | "collection.searchNoResults"
   | "collection.resizeRequests"
   | "collection.resizeResponse"
   | "collection.urlPreviewMissing"
@@ -237,6 +240,9 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "collection.localPrefix": "Local: {name}",
     "collection.globalPrefix": "Global: {name}",
     "collection.environments": "Ambientes",
+    "collection.searchRequestsPlaceholder": "Buscar requests...",
+    "collection.searchRequestsAria": "Buscar requests",
+    "collection.searchNoResults": "Nenhuma request encontrada.",
     "collection.resizeRequests": "Redimensionar painel de requisições",
     "collection.resizeResponse": "Redimensionar painel de resposta",
     "collection.urlPreviewMissing": "Informe uma URL para visualizar o preview.",
@@ -404,6 +410,9 @@ const translationsBase: Record<"pt-BR" | "en-US", Record<TranslationKey, string>
     "collection.localPrefix": "Local: {name}",
     "collection.globalPrefix": "Global: {name}",
     "collection.environments": "Environments",
+    "collection.searchRequestsPlaceholder": "Search requests...",
+    "collection.searchRequestsAria": "Search requests",
+    "collection.searchNoResults": "No requests found.",
     "collection.resizeRequests": "Resize requests panel",
     "collection.resizeResponse": "Resize response panel",
     "collection.urlPreviewMissing": "Provide a URL to preview.",
@@ -571,6 +580,9 @@ const spanishOverrides: Partial<Record<TranslationKey, string>> = {
   "collection.localPrefix": "Local: {name}",
   "collection.globalPrefix": "Global: {name}",
   "collection.environments": "Entornos",
+  "collection.searchRequestsPlaceholder": "Buscar requests...",
+  "collection.searchRequestsAria": "Buscar requests",
+  "collection.searchNoResults": "No se encontraron requests.",
   "collection.resizeRequests": "Redimensionar panel de requests",
   "collection.resizeResponse": "Redimensionar panel de respuesta",
   "collection.urlPreviewMissing": "Ingresa una URL para ver la vista previa.",

@@ -11,8 +11,10 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowBigLeft,
+  Search,
   X,
 } from "lucide-react";
 import { EnvironmentModal } from "@/components/environment-modal";
@@ -96,6 +98,13 @@ type RequestTab = "params" | "body" | "auth" | "headers" | "script";
 type ScriptTab = "pre-request" | "after-response";
 type ResponseTab = "body" | "headers" | "cookies";
 type ResponseBodyView = "code" | "web";
+type RequestSearchEntry = {
+  id: string;
+  name: string;
+  method: ApiRequest["method"];
+  pathLabel: string;
+  searchLabel: string;
+};
 
 type RequestContextMenuState = {
   nodeId: string;
@@ -115,6 +124,7 @@ export default function CollectionDetailsPage() {
   const params = useParams<{ id: string }>();
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const requestContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const requestSearchRef = useRef<HTMLDivElement | null>(null);
   const initialPaneWidthsRef = useRef<PaneWidths>(getInitialPaneWidths());
   const collections = useSyncExternalStore(
     subscribeCollections,
@@ -127,6 +137,7 @@ export default function CollectionDetailsPage() {
     getGlobalEnvironmentsStateServerSnapshot,
   );
   const [isMounted, setIsMounted] = useState(false);
+  const [titlebarSearchHost, setTitlebarSearchHost] = useState<HTMLElement | null>(null);
 
   const collectionId = Array.isArray(params.id) ? params.id[0] : params.id;
 
@@ -137,6 +148,8 @@ export default function CollectionDetailsPage() {
 
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [openRequestTabIds, setOpenRequestTabIds] = useState<string[]>([]);
+  const [requestSearchQuery, setRequestSearchQuery] = useState("");
+  const [isRequestSearchOpen, setIsRequestSearchOpen] = useState(false);
   const [requestTab, setRequestTab] = useState<RequestTab>("params");
   const [scriptTab, setScriptTab] = useState<ScriptTab>("pre-request");
   const [responseTab, setResponseTab] = useState<ResponseTab>("body");
@@ -278,6 +291,14 @@ export default function CollectionDetailsPage() {
   }, [leftPanelWidth, rightPanelWidth]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setTitlebarSearchHost(document.getElementById("apinaut-titlebar-center-slot"));
+  }, []);
+
+  useEffect(() => {
     if (!requestContextMenu) {
       return;
     }
@@ -404,6 +425,44 @@ export default function CollectionDetailsPage() {
   }, [leftPanelWidth, rightPanelWidth]);
 
   const requestTree = useMemo(() => collection?.requestTree ?? [], [collection]);
+  const requestSearchEntries = useMemo<RequestSearchEntry[]>(() => {
+    const entries: RequestSearchEntry[] = [];
+
+    const walkTree = (nodes: RequestTreeNode[], trail: string[]) => {
+      for (const node of nodes) {
+        if (node.type === "folder") {
+          walkTree(node.children, [...trail, node.name]);
+          continue;
+        }
+
+        const fallbackName = "Request";
+        const requestName = node.request.name.trim() || fallbackName;
+        const pathLabel = trail.join(" / ");
+
+        entries.push({
+          id: node.id,
+          name: requestName,
+          method: node.request.method,
+          pathLabel,
+          searchLabel: `${requestName} ${pathLabel}`.toLocaleLowerCase(locale),
+        });
+      }
+    };
+
+    walkTree(requestTree, []);
+    return entries;
+  }, [locale, requestTree]);
+  const requestSearchResults = useMemo(() => {
+    const normalizedQuery = requestSearchQuery.trim().toLocaleLowerCase(locale);
+
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    return requestSearchEntries
+      .filter((entry) => entry.searchLabel.includes(normalizedQuery))
+      .slice(0, 16);
+  }, [locale, requestSearchEntries, requestSearchQuery]);
   const environments = useMemo(() => collection?.environments ?? [], [collection]);
   const globalEnvironments = useMemo(
     () => globalEnvironmentState.environments ?? [],
@@ -627,7 +686,29 @@ export default function CollectionDetailsPage() {
 
     activeCollectionIdRef.current = nextCollectionId;
     setOpenRequestTabIds([]);
+    setRequestSearchQuery("");
+    setIsRequestSearchOpen(false);
   }, [collection?.id]);
+
+  useEffect(() => {
+    if (!isRequestSearchOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (requestSearchRef.current && event.target instanceof Node && requestSearchRef.current.contains(event.target)) {
+        return;
+      }
+
+      setIsRequestSearchOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isRequestSearchOpen]);
 
   useEffect(() => {
     if (!isEnvironmentModalOpen) {
@@ -1565,6 +1646,24 @@ export default function CollectionDetailsPage() {
     setRequestContextMenu(null);
   };
 
+  const selectRequestFromSearch = (requestId: string) => {
+    const folderPath = findFolderPathForRequest(requestTree, requestId) ?? [];
+
+    if (folderPath.length > 0) {
+      setExpandedFolderIds((current) => {
+        const merged = new Set(current);
+        for (const folderId of folderPath) {
+          merged.add(folderId);
+        }
+        return Array.from(merged);
+      });
+    }
+
+    selectRequest(requestId);
+    setRequestSearchQuery("");
+    setIsRequestSearchOpen(false);
+  };
+
   const startEditingRequestName = (requestId: string, currentName: string) => {
     setActiveRequestAndPersist(requestId);
     setRequestContextMenu(null);
@@ -2195,7 +2294,69 @@ export default function CollectionDetailsPage() {
   } as CSSProperties;
 
   return (
-    <main className="h-full min-h-full overflow-hidden bg-[#100e1a] text-white">
+    <>
+      {titlebarSearchHost &&
+        createPortal(
+          <div ref={requestSearchRef} className="relative w-[360px] max-w-[42vw]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+            <input
+              type="text"
+              value={requestSearchQuery}
+              onChange={(event) => {
+                setRequestSearchQuery(event.target.value);
+                setIsRequestSearchOpen(true);
+              }}
+              onFocus={() => {
+                setIsRequestSearchOpen(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && requestSearchResults[0]) {
+                  event.preventDefault();
+                  selectRequestFromSearch(requestSearchResults[0].id);
+                }
+
+                if (event.key === "Escape") {
+                  setIsRequestSearchOpen(false);
+                }
+              }}
+              placeholder={t("collection.searchRequestsPlaceholder")}
+              aria-label={t("collection.searchRequestsAria")}
+              className="h-8 w-full rounded-md border border-white/20 bg-[#191628] pl-8 pr-2 text-xs text-zinc-100 outline-none transition placeholder:text-zinc-400 focus:border-violet-300/70 focus:ring-2 focus:ring-violet-400/35"
+            />
+
+            {isRequestSearchOpen && requestSearchQuery.trim().length > 0 && (
+              <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-72 overflow-y-auto rounded-md border border-white/15 bg-[#151223] p-1 shadow-2xl">
+                {requestSearchResults.length > 0 ? (
+                  requestSearchResults.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => selectRequestFromSearch(entry.id)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-100 transition hover:bg-violet-500/20"
+                    >
+                      <span
+                        className={`inline-flex h-4 shrink-0 items-center rounded border px-1 text-[9px] font-semibold leading-none ${METHOD_STYLE_MAP[entry.method].badge}`}
+                      >
+                        {entry.method}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{entry.name}</span>
+                        {entry.pathLabel && (
+                          <span className="block truncate text-[10px] text-zinc-400">{entry.pathLabel}</span>
+                        )}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="px-2 py-2 text-xs text-zinc-400">{t("collection.searchNoResults")}</p>
+                )}
+              </div>
+            )}
+          </div>,
+          titlebarSearchHost,
+        )}
+
+      <main className="h-full min-h-full overflow-hidden bg-[#100e1a] text-white">
       <div className="flex h-full w-full flex-col overflow-hidden">
         <div className="flex shrink-0 items-center gap-2 px-4 py-2">
           <Link
@@ -2454,7 +2615,8 @@ export default function CollectionDetailsPage() {
           reorderGlobalEnvironmentVariable,
         }}
       />
-    </main>
+      </main>
+    </>
   );
 }
 

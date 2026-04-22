@@ -107,7 +107,12 @@ export const DesktopTitleBar = () => {
         <span className="text-sm font-semibold text-zinc-100">APInaut</span>
       </div>
 
-      <div className="apinaut-titlebar-no-drag ml-auto flex items-center gap-2 pr-2">
+      <div
+        id="apinaut-titlebar-center-slot"
+        className="apinaut-titlebar-no-drag flex flex-1 items-center justify-center px-4"
+      />
+
+      <div className="apinaut-titlebar-no-drag flex items-center gap-2 pr-2">
         <LanguageSelector compact />
       </div>
 
