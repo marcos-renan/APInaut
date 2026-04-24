@@ -57,6 +57,7 @@ const editorTheme = EditorView.theme(
     "&": {
       backgroundColor: "#121025",
       height: "100%",
+      minHeight: "0",
       fontSize: "var(--apinaut-editor-font-size, 12px)",
       color: "#e5e7eb",
     },
@@ -64,7 +65,10 @@ const editorTheme = EditorView.theme(
       backgroundColor: "#121025",
       fontFamily: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace",
       lineHeight: "1.55",
-      overflow: "auto",
+      height: "100%",
+      minHeight: "0",
+      overflowX: "auto",
+      overflowY: "auto",
     },
     ".cm-gutters": {
       backgroundColor: "#121025",
@@ -300,6 +304,10 @@ export const CodeEditor = ({
   fontSizePx,
   wordWrap = true,
 }: CodeEditorProps) => {
+  const resolvedHeight = typeof height === "number" ? `${height}px` : height;
+  const resolvedMinHeight = typeof height === "number" ? `${height}px` : undefined;
+  const resolvedMaxHeight = typeof height === "number" ? `${height}px` : undefined;
+
   const extensions = useMemo(() => {
     const nextExtensions: Extension[] = [editorTheme];
 
@@ -461,7 +469,8 @@ export const CodeEditor = ({
   return (
     <div
       className={cn(
-        allowOverflowVisible ? "overflow-visible" : "overflow-hidden",
+        "h-full min-h-0",
+        allowOverflowVisible ? "overflow-visible" : singleLine ? "overflow-hidden" : "overflow-auto",
         "rounded-lg border border-white/15 bg-[#121025]",
         className,
       )}
@@ -472,7 +481,9 @@ export const CodeEditor = ({
         onChange={(nextValue) => onChange?.(nextValue)}
         editable={!readOnly}
         readOnly={readOnly}
-        height={typeof height === "number" ? `${height}px` : height}
+        height={resolvedHeight}
+        minHeight={resolvedMinHeight}
+        maxHeight={resolvedMaxHeight}
         theme={oneDark}
         extensions={extensions}
         basicSetup={{

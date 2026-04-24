@@ -51,7 +51,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
   const basicPasswordHasTemplateToken = TEMPLATE_TOKEN_IN_VALUE_REGEX.test(activeRequest?.basicPassword ?? "");
 
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] px-0 py-3">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden border-y border-white/10 bg-[#1a1728] px-0 py-3">
       {activeRequest ? (
         <>
           <div className="mb-3 shrink-0 px-3">
@@ -137,7 +137,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
             ))}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto px-3">
+          <div className="min-h-0 flex-1 overflow-hidden px-3">
             {requestTab === "params" && (
               <div className="h-full overflow-auto pr-1">
                 <div className="mb-3 rounded-lg border border-white/10 bg-[#121025] p-3">
@@ -190,7 +190,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
             )}
 
             {requestTab === "body" && (
-              <div className="flex h-full flex-col space-y-2">
+              <div className="flex h-full min-h-0 flex-col space-y-2">
                 <StyledSelect
                   value={activeRequest.bodyMode}
                   onChange={(nextValue) =>
@@ -221,38 +221,44 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                     />
                   </div>
                 ) : (
-                  <CodeEditor
-                    value={activeRequest.body}
-                    onChange={(nextBody) =>
-                      updateActiveRequest((request: ApiRequest) => ({
-                        ...request,
-                        body: nextBody,
-                      }))
-                    }
-                    language={activeRequest.bodyMode === "json" ? "json" : "text"}
-                    jsonColorPreset="response"
-                    readOnly={activeRequest.bodyMode === "none"}
-                    enableJsonAutocomplete={activeRequest.bodyMode === "json"}
-                    enableTemplateAutocomplete={activeRequest.bodyMode !== "none"}
-                    templateVariables={templateVariableOptions}
-                    fontSizePx={settings.requestFontSize}
-                    lineNumbers={settings.showLineNumbers}
-                    height={280}
-                    className={activeRequest.bodyMode === "none" ? "min-h-0 flex-1 opacity-60" : "min-h-0 flex-1"}
-                    placeholder={
-                      activeRequest.bodyMode === "none"
-                        ? t("editor.body.nonePlaceholder")
-                        : activeRequest.bodyMode === "json"
-                          ? '{\n  "name": "APInaut"\n}'
-                          : t("editor.body.textPlaceholder")
-                    }
-                  />
+                  <div className="min-h-0 flex-1 pr-1">
+                    <CodeEditor
+                      value={activeRequest.body}
+                      onChange={(nextBody) =>
+                        updateActiveRequest((request: ApiRequest) => ({
+                          ...request,
+                          body: nextBody,
+                        }))
+                      }
+                      language={activeRequest.bodyMode === "json" ? "json" : "text"}
+                      jsonColorPreset="response"
+                      readOnly={activeRequest.bodyMode === "none"}
+                      enableJsonAutocomplete={activeRequest.bodyMode === "json"}
+                      enableTemplateAutocomplete={activeRequest.bodyMode !== "none"}
+                      templateVariables={templateVariableOptions}
+                      fontSizePx={settings.requestFontSize}
+                      lineNumbers={settings.showLineNumbers}
+                      height="100%"
+                      className={
+                        activeRequest.bodyMode === "none"
+                          ? "h-full min-h-0 overflow-auto opacity-60"
+                          : "h-full min-h-0 overflow-auto"
+                      }
+                      placeholder={
+                        activeRequest.bodyMode === "none"
+                          ? t("editor.body.nonePlaceholder")
+                          : activeRequest.bodyMode === "json"
+                            ? '{\n  "name": "APInaut"\n}'
+                            : t("editor.body.textPlaceholder")
+                      }
+                    />
+                  </div>
                 )}
               </div>
             )}
 
             {requestTab === "auth" && (
-              <div className="space-y-3 overflow-visible pr-1">
+              <div className="h-full overflow-auto pr-1 space-y-3">
                 <StyledSelect
                   value={activeRequest.authType}
                   onChange={(nextValue) =>
@@ -361,7 +367,7 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
             )}
 
             {requestTab === "script" && (
-              <div className="flex h-full flex-col space-y-2">
+              <div className="flex h-full min-h-0 flex-col space-y-2">
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -387,32 +393,34 @@ export const RequestEditorPanel = (props: RequestEditorPanelProps) => {
                   </button>
                 </div>
 
-                <CodeEditor
-                  value={
-                    scriptTab === "pre-request"
-                      ? activeRequest.preRequestScript
-                      : activeRequest.afterResponseScript
-                  }
-                  onChange={(nextScript) =>
-                    updateActiveRequest((request: ApiRequest) =>
+                <div className="min-h-0 flex-1 pr-1">
+                  <CodeEditor
+                    value={
                       scriptTab === "pre-request"
-                        ? { ...request, preRequestScript: nextScript }
-                        : { ...request, afterResponseScript: nextScript },
-                    )
-                  }
-                  language="javascript"
-                  enableTemplateAutocomplete
-                  templateVariables={templateVariableOptions}
-                  fontSizePx={settings.requestFontSize}
-                  lineNumbers={settings.showLineNumbers}
-                  height={280}
-                  className="min-h-0 flex-1"
-                  placeholder={
-                    scriptTab === "pre-request"
-                      ? "// apinaut.environment.set('baseUrl', 'http://localhost:8080');"
-                      : "// const json = apinaut.response.json();\n// apinaut.environment.set('token', json.data.accessToken);"
-                  }
-                />
+                        ? activeRequest.preRequestScript
+                        : activeRequest.afterResponseScript
+                    }
+                    onChange={(nextScript) =>
+                      updateActiveRequest((request: ApiRequest) =>
+                        scriptTab === "pre-request"
+                          ? { ...request, preRequestScript: nextScript }
+                          : { ...request, afterResponseScript: nextScript },
+                      )
+                    }
+                    language="javascript"
+                    enableTemplateAutocomplete
+                    templateVariables={templateVariableOptions}
+                    fontSizePx={settings.requestFontSize}
+                    lineNumbers={settings.showLineNumbers}
+                    height="100%"
+                    className="h-full min-h-0 overflow-auto"
+                    placeholder={
+                      scriptTab === "pre-request"
+                        ? "// apinaut.environment.set('baseUrl', 'http://localhost:8080');"
+                        : "// const json = apinaut.response.json();\n// apinaut.environment.set('token', json.data.accessToken);"
+                    }
+                  />
+                </div>
 
                 <div className="rounded-lg border border-white/10 bg-[#121025] p-3 text-xs text-zinc-300">
                   <p className="font-medium text-zinc-200">{t("editor.script.shortcuts")}</p>
